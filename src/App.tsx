@@ -4,6 +4,8 @@ import { ZeroToHeroTab } from "./components/ZeroToHeroTab";
 import { AdvancedTab } from "./components/AdvancedTab";
 import { QATab } from "./components/QATab";
 import { HistoryTab } from "./components/HistoryTab";
+import { DailyQuizzesTab } from "./components/DailyQuizzesTab";
+import { StudentMiniApp } from "./components/StudentMiniApp";
 import { ChannelPreviewModal } from "./components/ChannelPreviewModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { HelpModal } from "./components/HelpModal";
@@ -14,13 +16,19 @@ import {
   BotConfig,
   BroadcastLog,
   MessengerPlatform,
+  DailyQuizItem,
+  PracticeScenario,
 } from "./types";
 import {
   initialLessons,
   initialAdvancedTopics,
   initialQuestions,
 } from "./data/curriculumData";
-import { CheckCircle, AlertCircle, Info, Sparkles } from "lucide-react";
+import {
+  initialDailyQuizzes,
+  initialPracticeScenarios,
+} from "./data/quizData";
+import { CheckCircle, AlertCircle, Info, Sparkles, Smartphone, ArrowLeft } from "lucide-react";
 
 export default function App() {
   // --- Persistent State ---
@@ -80,6 +88,32 @@ export default function App() {
     }
     return initialQuestions;
   });
+
+  const [quizzes, setQuizzes] = useState<DailyQuizItem[]>(() => {
+    const saved = localStorage.getItem("accounting_bot_quizzes");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return initialDailyQuizzes;
+  });
+
+  const [scenarios, setScenarios] = useState<PracticeScenario[]>(() => {
+    const saved = localStorage.getItem("accounting_bot_scenarios");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return initialPracticeScenarios;
+  });
+
+  const [isMiniAppModalOpen, setIsMiniAppModalOpen] = useState(false);
 
   const [historyLogs, setHistoryLogs] = useState<BroadcastLog[]>(() => {
     const saved = localStorage.getItem("accounting_bot_history");
@@ -165,6 +199,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("accounting_bot_questions", JSON.stringify(questions));
   }, [questions]);
+
+  useEffect(() => {
+    localStorage.setItem("accounting_bot_quizzes", JSON.stringify(quizzes));
+  }, [quizzes]);
+
+  useEffect(() => {
+    localStorage.setItem("accounting_bot_scenarios", JSON.stringify(scenarios));
+  }, [scenarios]);
 
   useEffect(() => {
     localStorage.setItem("accounting_bot_history", JSON.stringify(historyLogs));
@@ -275,9 +317,11 @@ export default function App() {
     if (imported.lessons && Array.isArray(imported.lessons)) setLessons(imported.lessons);
     if (imported.topics && Array.isArray(imported.topics)) setTopics(imported.topics);
     if (imported.questions && Array.isArray(imported.questions)) setQuestions(imported.questions);
+    if (imported.quizzes && Array.isArray(imported.quizzes)) setQuizzes(imported.quizzes);
+    if (imported.scenarios && Array.isArray(imported.scenarios)) setScenarios(imported.scenarios);
     if (imported.historyLogs && Array.isArray(imported.historyLogs)) setHistoryLogs(imported.historyLogs);
     if (imported.config && typeof imported.config === "object") setConfig((prev) => ({ ...prev, ...imported.config }));
-    showToast("کلیه اطلاعات، دروس و سوالات از فایل بکاپ با موفقیت بازیابی شد.", "success");
+    showToast("کلیه اطلاعات، دروس، آزمون‌ها و سوالات از فایل بکاپ با موفقیت بازیابی شد.", "success");
   };
 
   const handleAddLesson = (newLesson: LessonItem) => {
@@ -300,6 +344,62 @@ export default function App() {
     showToast("سوال جدید از کاربر با موفقیت در صندوق ثبت گردید.", "success");
   };
 
+  const handleAddQuiz = (newQuiz: DailyQuizItem) => {
+    setQuizzes((prev) => [newQuiz, ...prev]);
+    showToast(`آزمون روز ${newQuiz.dayNumber} با موفقیت ثبت شد.`, "success");
+  };
+
+  const handleDeleteQuiz = (id: string) => {
+    setQuizzes((prev) => prev.filter((q) => q.id !== id));
+    showToast("آزمون با موفقیت حذف گردید.", "info");
+  };
+
+  const handleSendQuizToChannel = async (quiz: DailyQuizItem, platforms: MessengerPlatform[]) => {
+    setIsSending(true);
+    try {
+      const studentAppUrl = typeof window !== "undefined"
+        ? `${window.location.origin}?view=student`
+        : "https://acc-bot.example.com?view=student";
+
+      const res = await fetch("/api/send-poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platforms,
+          title: quiz.title,
+          question: quiz.question,
+          options: quiz.options,
+          correctOptionIndex: quiz.correctOptionIndex,
+          explanation: quiz.explanation,
+          config,
+          webAppUrl: studentAppUrl,
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "خطا در ارسال آزمون");
+
+      const newLog: BroadcastLog = {
+        id: "log-" + Date.now(),
+        title: quiz.title,
+        style: "daily_quiz",
+        platforms,
+        contentPreview: quiz.question.slice(0, 100) + "...",
+        fullText: `📊 ${quiz.title}\nسوال: ${quiz.question}\nگزینه‌ها:\n${quiz.options.map((o, i) => `${i + 1}. ${o}`).join("\n")}\n✅ گزینه صحیح: ${quiz.correctOptionIndex + 1}\n💡 استناد: ${quiz.explanation}`,
+        timestamp: new Date().toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" }),
+        status: config.simulationMode ? "simulated" : "success",
+      };
+
+      setHistoryLogs((prev) => [newLog, ...prev]);
+      showToast("آزمون و نظرسنجی با موفقیت به کانال تلگرام و بله ارسال شد.", "success");
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || "خطا در ارسال آزمون به کانال", "error");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const handleResendLog = (log: BroadcastLog) => {
     setPreviewModal({
       isOpen: true,
@@ -307,6 +407,37 @@ export default function App() {
       formattedText: log.fullText,
     });
   };
+
+  const isUrlStudentMode =
+    typeof window !== "undefined" &&
+    (new URLSearchParams(window.location.search).get("view") === "student" ||
+      new URLSearchParams(window.location.search).get("app") === "student");
+
+  if (isUrlStudentMode) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col p-2 sm:p-4 font-['Vazirmatn',sans-serif]" dir="rtl">
+        <div className="max-w-4xl w-full mx-auto mb-3 flex items-center justify-between bg-slate-900/90 border border-slate-800 px-4 py-2 rounded-xl text-xs">
+          <span className="text-emerald-400 font-bold flex items-center gap-1.5">
+            <Smartphone className="w-4 h-4" />
+            <span>محیط وب‌اپلیکیشن اعضای کانال (Telegram / Bale WebApp)</span>
+          </span>
+          <a
+            href={window.location.pathname}
+            className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
+          >
+            <span>ورود به پنل مدیریت ادمین</span>
+            <ArrowLeft className="w-3 h-3" />
+          </a>
+        </div>
+        <StudentMiniApp
+          isStandalone
+          quizzes={quizzes}
+          scenarios={scenarios}
+          config={config}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-emerald-500/30 selection:text-emerald-200 font-['Vazirmatn',sans-serif]" dir="rtl">
@@ -375,6 +506,41 @@ export default function App() {
           />
         )}
 
+        {activeTab === "quizzes" && (
+          <DailyQuizzesTab
+            quizzes={quizzes}
+            lessons={lessons}
+            config={config}
+            onSendQuizToChannel={handleSendQuizToChannel}
+            onAddQuiz={handleAddQuiz}
+            onDeleteQuiz={handleDeleteQuiz}
+            onOpenMiniAppSimulator={() => setIsMiniAppModalOpen(true)}
+          />
+        )}
+
+        {activeTab === "student_app" && (
+          <div className="py-2">
+            <div className="flex items-center justify-between mb-4 bg-slate-900 border border-slate-800 p-3 rounded-xl text-xs">
+              <div className="flex items-center gap-2 text-slate-300">
+                <Smartphone className="w-4 h-4 text-emerald-400" />
+                <span>پیش‌نمایش زنده مینی‌اپ حسابداری اعضای کانال (شبیه‌ساز Telegram / Bale WebApp)</span>
+              </div>
+              <button
+                onClick={() => setActiveTab("quizzes")}
+                className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-semibold"
+              >
+                <span>بازگشت به پنل مدیریت آزمون‌ها</span>
+                <ArrowLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <StudentMiniApp
+              quizzes={quizzes}
+              scenarios={scenarios}
+              config={config}
+            />
+          </div>
+        )}
+
         {activeTab === "history" && (
           <HistoryTab logs={historyLogs} onResend={handleResendLog} />
         )}
@@ -382,8 +548,22 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-slate-900 py-4 text-center text-xs text-slate-500 bg-slate-950">
-        سیستم یکپارچه ارسال ۳ سبک آموزش حسابداری به کانال‌های تلگرام و بله | منطبق بر استانداردهای حسابداری و قوانین مالیاتی ایران
+        سیستم یکپارچه ارسال ۳ سبک آموزش حسابداری و آزمون‌های روزانه به کانال‌های تلگرام و بله | منطبق بر قوانین مالیاتی ایران
       </footer>
+
+      {/* Student Mini App Modal Simulator */}
+      {isMiniAppModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-6 overflow-y-auto">
+          <div className="w-full max-w-4xl max-h-[94vh] flex flex-col">
+            <StudentMiniApp
+              quizzes={quizzes}
+              scenarios={scenarios}
+              config={config}
+              onClose={() => setIsMiniAppModalOpen(false)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Channel Preview & Final Send Modal */}
       <ChannelPreviewModal
@@ -405,6 +585,8 @@ export default function App() {
           lessons,
           topics,
           questions,
+          quizzes,
+          scenarios,
           config,
           historyLogs,
           exportedAt: new Date().toISOString(),

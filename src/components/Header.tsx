@@ -77,6 +77,15 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="truncate max-w-[110px]">{config.baleChannel || "تنظیم نشده"}</span>
             </div>
 
+            {/* Mini App Preview Button */}
+            <button
+              onClick={() => onTabChange("student_app")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs font-semibold border border-emerald-500/40 transition-all shadow-sm"
+              title="مشاهده مستقیم مینی‌اپ اختصاصی اعضای کانال"
+            >
+              <span>📱 مینی‌اپ اعضا</span>
+            </button>
+
             {/* Help Button */}
             <button
               onClick={onOpenHelp}
@@ -134,6 +143,18 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <span className="w-5 h-5 rounded-md bg-white/20 flex items-center justify-center text-xs font-bold">۳</span>
             <span>پست‌های پرسش و پاسخ (پاسخ ادمین)</span>
+          </button>
+
+          <button
+            onClick={() => onTabChange("quizzes")}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
+              activeTab === "quizzes" || activeTab === "student_app"
+                ? "bg-teal-600 text-white shadow-md shadow-teal-900/30"
+                : "bg-slate-800/60 text-slate-300 hover:bg-slate-800 hover:text-white"
+            }`}
+          >
+            <span className="w-5 h-5 rounded-md bg-white/20 flex items-center justify-center text-xs font-bold">۴</span>
+            <span>آزمون‌های روزانه و مینی‌اپ اعضا</span>
           </button>
 
           <button

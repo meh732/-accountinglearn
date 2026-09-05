@@ -116,15 +116,31 @@ async function startServer() {
         } else {
           try {
             const cleanChannel = channel.startsWith("@") || channel.startsWith("-") ? channel : `@${channel}`;
+            const payload: Record<string, any> = {
+              chat_id: cleanChannel,
+              text,
+              parse_mode: parseMode,
+              disable_web_page_preview: false,
+            };
+
+            // Optional WebApp Button if provided
+            if (req.body.webAppUrl) {
+              payload.reply_markup = {
+                inline_keyboard: [
+                  [
+                    {
+                      text: "📱 ورود به مینی‌اپ و شرکت در آزمون",
+                      web_app: { url: req.body.webAppUrl },
+                    },
+                  ],
+                ],
+              };
+            }
+
             const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: cleanChannel,
-                text,
-                parse_mode: parseMode,
-                disable_web_page_preview: false,
-              }),
+              body: JSON.stringify(payload),
             });
             const tgData = await tgRes.json();
             if (tgData.ok) {
@@ -205,6 +221,171 @@ async function startServer() {
       });
     } catch (err: any) {
       return res.status(500).json({ ok: false, error: err.message || "خطا در پردازش درخواست ارسال" });
+    }
+  });
+
+  // Send Quiz Poll to Telegram channel and interactive test to Bale channel
+  app.post("/api/send-poll", async (req, res) => {
+    try {
+      const {
+        platforms = ["telegram", "bale"],
+        question,
+        options = [],
+        correctOptionIndex = 0,
+        explanation = "",
+        config = {},
+        webAppUrl = "",
+        title = "آزمون روزانه حسابداری",
+      } = req.body;
+
+      if (!question || !Array.isArray(options) || options.length < 2) {
+        return res.status(400).json({
+          ok: false,
+          error: "صورت سوال و حداقل ۲ گزینه پاسخ الزامی است.",
+        });
+      }
+
+      const results: Record<string, any> = {};
+
+      // 1. Telegram Native Quiz Poll
+      if (platforms.includes("telegram")) {
+        const token = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
+        const channel = config.telegramChannel || process.env.TELEGRAM_CHANNEL_ID;
+
+        if (!token || !channel) {
+          results.telegram = {
+            ok: false,
+            simulated: true,
+            status: "simulated_success",
+            message: "حالت شبیه‌سازی: آزمون با موفقیت در پیش‌نمایش کانال تلگرام ارسال شد.",
+            channel: channel || "@channel_test",
+          };
+        } else {
+          try {
+            const cleanChannel = channel.startsWith("@") || channel.startsWith("-") ? channel : `@${channel}`;
+            
+            // Telegram Bot API sendPoll
+            const pollBody: Record<string, any> = {
+              chat_id: cleanChannel,
+              question: question.length > 290 ? question.slice(0, 290) + "..." : question,
+              options: options.slice(0, 10),
+              type: "quiz",
+              correct_option_id: Math.max(0, Math.min(options.length - 1, correctOptionIndex)),
+              is_anonymous: false,
+            };
+
+            if (explanation) {
+              pollBody.explanation = explanation.length > 195 ? explanation.slice(0, 195) + "..." : explanation;
+            }
+
+            const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendPoll`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(pollBody),
+            });
+            const tgData = await tgRes.json();
+
+            if (tgData.ok) {
+              results.telegram = {
+                ok: true,
+                messageId: tgData.result?.message_id,
+                channel: cleanChannel,
+                type: "quiz_poll",
+              };
+
+              // Optionally send WebApp link below the poll
+              if (webAppUrl) {
+                await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    chat_id: cleanChannel,
+                    text: `📱 <b>مینی‌اپ آزمون و کارگاه حسابداری اعضا:</b>\nبرای شرکت در آزمون کامل، مشاهده کارنامه و ثبت آزمایشی سند حسابداری در نرم‌افزار، دکمه زیر را لمس کنید:`,
+                    parse_mode: "HTML",
+                    reply_markup: {
+                      inline_keyboard: [
+                        [
+                          {
+                            text: "📱 ورود به مینی‌اپ حسابداری کانال",
+                            web_app: { url: webAppUrl },
+                          },
+                        ],
+                      ],
+                    },
+                  }),
+                }).catch(() => null);
+              }
+            } else {
+              results.telegram = {
+                ok: false,
+                error: tgData.description || "خطا در ارسال نظرسنجی کوییز به تلگرام",
+                details: tgData,
+              };
+            }
+          } catch (err: any) {
+            results.telegram = { ok: false, error: err.message };
+          }
+        }
+      }
+
+      // 2. Bale Interactive Quiz Card Dispatch
+      if (platforms.includes("bale")) {
+        const token = config.baleToken || process.env.BALE_BOT_TOKEN;
+        const channel = config.baleChannel || process.env.BALE_CHANNEL_ID;
+
+        if (!token || !channel) {
+          results.bale = {
+            ok: false,
+            simulated: true,
+            status: "simulated_success",
+            message: "حالت شبیه‌سازی: آزمون با موفقیت در پیش‌نمایش کانال بله ارسال شد.",
+            channel: channel || "@channel_test_bale",
+          };
+        } else {
+          try {
+            const cleanChannel = channel.startsWith("@") || channel.startsWith("-") ? channel : `@${channel}`;
+            
+            // Format an engaging quiz card for Bale
+            const optionsText = options
+              .map((opt: string, idx: number) => {
+                const numIcon = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"][idx] || `(${idx + 1})`;
+                return `${numIcon} ${opt}`;
+              })
+              .join("\n");
+
+            let baleText = `📊 <b>${title}</b>\n\n❓ <b>سوال:</b>\n${question}\n\n<b>گزینه‌ها:</b>\n${optionsText}\n\n`;
+            baleText += `✅ <b>پاسخ صحیح:</b> گزینه ${correctOptionIndex + 1}\n`;
+            if (explanation) {
+              baleText += `💡 <b>توضیح و استناد قانونی:</b>\n${explanation}\n\n`;
+            }
+            if (webAppUrl) {
+              baleText += `📱 <b>مینی‌اپ تعاملی حسابداری و ثبت سند:</b>\n${webAppUrl}\n\n`;
+            }
+            baleText += `${config.channelSignature || ""}`;
+
+            const baleRes = await fetch(`https://tapi.bale.ai/bot${token}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: cleanChannel,
+                text: baleText,
+              }),
+            });
+            const baleData = await baleRes.json();
+            if (baleData.ok) {
+              results.bale = { ok: true, messageId: baleData.result?.message_id, channel: cleanChannel };
+            } else {
+              results.bale = { ok: false, error: baleData.description, details: baleData };
+            }
+          } catch (err: any) {
+            results.bale = { ok: false, error: err.message };
+          }
+        }
+      }
+
+      return res.json({ ok: true, results });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message || "خطا در ارسال آزمون به کانال" });
     }
   });
 
@@ -357,6 +538,25 @@ async function startServer() {
 ۲. تشریح کامل و مستندات قانونی (اشاره دقیق به ماده قانون یا بخشنامه سازمان امور مالیاتی/تامین اجتماعی)
 ۳. نحوه ثبت حسابداری (در صورت نیاز)
 ۴. توصیه مهم و عملی برای جلوگیری از جریمه یا رد دفاتر`;
+      } else if (type === "daily_quiz") {
+        userPrompt = `یک آزمون تستی ۴ گزینه‌ای استاندارد و دقیق حسابداری ایران با موضوع "${topic || "مفاهیم و ثبت سند یا مالیات"}" تولید کن.
+جزئیات: ${promptDetails || "سوال کاربردی بازار کار ایران با گزینه‌های چالشی و پاسخ تشریحی مستند به قانون"}.
+
+پاسخ را دقیقاً در قالب فرمت JSON زیر (بدون هیچ توضیح اضافه، فقط آبجکت JSON معتبر) ارسال کن:
+{
+  "title": "آزمون تستی: ...",
+  "category": "مفاهیم پایه",
+  "question": "متن دقیق و شفاف سوال تستی",
+  "options": [
+    "گزینه اول",
+    "گزینه دوم",
+    "گزینه سوم",
+    "گزینه چهارم"
+  ],
+  "correctOptionIndex": 0,
+  "explanation": "پاسخ تشریحی کامل با استناد به ماده قانون یا استاندارد حسابداری ایران",
+  "tags": ["#آزمون_حسابداری", "#تست_روزانه"]
+}`;
       } else if (type === "call_for_questions") {
         userPrompt = `یک پست تلگرامی و بله بسیار جذاب برای «دعوت از اعضای کانال جهت ارسال سوالات حسابداری و مالیاتی» بنویس.
 موضوع یا هفته: "${topic || "هفته مالیات و سامانه مودیان"}".

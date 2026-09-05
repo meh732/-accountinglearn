@@ -639,26 +639,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {activeTab === "guide" && (
             <div className="space-y-5 text-xs sm:text-sm text-slate-300 leading-relaxed">
               
-              {/* Linux Script Commands Callout */}
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
-                <h4 className="font-bold text-amber-400 flex items-center gap-2">
-                  <Terminal className="w-4 h-4" />
-                  <span>اسکریپت لینوکس (Linux Installation, Update & Uninstall Script)</span>
-                </h4>
+              {/* Linux Script Commands Callout (Sanaei Style) */}
+              <div className="bg-slate-950 border border-emerald-500/40 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-emerald-400 flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-emerald-400" />
+                    <span>دستور نصب سریع تک‌خطی سرور لینوکس (به سبک پنل سنایی)</span>
+                  </h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+                    Sanaei 3X-UI Style
+                  </span>
+                </div>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  یک اسکریپت شل کاملاً انگلیسی به نام <code>install.sh</code> در پوشه اصلی پروژه ایجاد شده که موقع آپدیت و حذف، به طور اتوماتیک نسخه پشتیبان را به بات‌های ادمین ارسال می‌کند:
+                  با کپی و اجرای دستور تک‌خطی زیر در ترمینال سرور لینوکس (اوبونتو، دبیان، ردهت، سنت‌او‌اس)، پروژه به صورت کامل و خودکار از مخزن رسمی گیت‌هاب کلون شده، دپندنسی‌ها نصب و سرویس پایدار systemd فعال می‌شود:
                 </p>
+                <div className="bg-slate-900 border border-emerald-500/30 rounded-xl p-3 font-mono text-xs text-emerald-300 flex items-center justify-between gap-2 overflow-x-auto" dir="ltr">
+                  <span className="select-all">bash &lt;(curl -Ls https://raw.githubusercontent.com/meh732/-accountinglearn/master/install.sh)</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText("bash <(curl -Ls https://raw.githubusercontent.com/meh732/-accountinglearn/master/install.sh)");
+                      alert("دستور تک‌خطی نصب در کلیپ‌بورد کپی شد!");
+                    }}
+                    className="shrink-0 px-2.5 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-200 border border-emerald-500/40 rounded-lg text-[11px] font-sans transition-colors"
+                  >
+                    کپی دستور
+                  </button>
+                </div>
+
+                <div className="pt-2 border-t border-slate-800 text-xs text-slate-300 space-y-1">
+                  <p className="font-semibold text-amber-300">⚡ دسترسی آسان با دستور خط فرمان:</p>
+                  <p className="text-slate-400">
+                    پس از اتمام نصب، فقط با تایپ دستور <code className="text-amber-300 bg-slate-900 px-1.5 py-0.5 rounded font-mono">accountinglearn</code> در هر کجای ترمینال، منوی مدیریت لینوکسی شبیه به پنل سنایی باز می‌شود.
+                  </p>
+                </div>
+
                 <div className="bg-slate-900 border border-slate-700/60 rounded-xl p-3 font-mono text-xs text-slate-200 space-y-1.5" dir="ltr">
-                  <div className="text-emerald-400"># 1. Interactive Menu:</div>
-                  <div>./install.sh</div>
-                  <div className="text-emerald-400 mt-2"># 2. Automated Install & Systemd Service:</div>
-                  <div>./install.sh --install</div>
-                  <div className="text-emerald-400 mt-2"># 3. Update with Automated Bot Backup Dispatch:</div>
-                  <div>./install.sh --update</div>
-                  <div className="text-emerald-400 mt-2"># 4. Uninstall with Automated Bot Backup Dispatch:</div>
-                  <div>./install.sh --uninstall</div>
-                  <div className="text-emerald-400 mt-2"># 5. Manual Backup Dispatch:</div>
-                  <div>./install.sh --backup</div>
+                  <div className="text-emerald-400"># Run Interactive Management Menu anytime:</div>
+                  <div className="text-yellow-300">accountinglearn</div>
+                  <div className="text-emerald-400 mt-2"># Quick flags:</div>
+                  <div>./install.sh --update      # Auto-backups to Telegram/Bale and pulls new updates</div>
+                  <div>./install.sh --uninstall   # Auto-backups to Telegram/Bale and cleans service</div>
+                  <div>./install.sh --backup      # Creates instant backup and dispatches to bots</div>
+                  <div>./install.sh --status      # Checks service state</div>
                 </div>
               </div>
 
