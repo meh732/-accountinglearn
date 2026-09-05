@@ -26,6 +26,11 @@ export interface BotConfig {
   lastBackupAt?: string;
   telegramAdminChatId?: string; // numeric or @admin
   baleAdminChatId?: string; // numeric or @admin
+  deploymentPort?: number; // custom port, default: 3000
+  deploymentDomain?: string; // custom domain, e.g. panel.example.com
+  deploymentEnableSsl?: boolean; // optional SSL acquisition with Let's Encrypt
+  deploymentSslEmail?: string; // admin email for Certbot notifications
+  deploymentRedirectHttps?: boolean; // auto redirect HTTP to HTTPS
 }
 
 export interface AccountingNewsItem {

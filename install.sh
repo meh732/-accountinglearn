@@ -245,9 +245,15 @@ do_install() {
 
     # Port Configuration
     local default_port=3000
-    echo ""
-    read -p "Enter web panel port [Default: ${default_port}]: " custom_port
-    PORT="${custom_port:-$default_port}"
+    if [ -z "${CLI_PORT}" ]; then
+        echo ""
+        echo -e "${YELLOW}>> Port Configuration (تنظیم پورت اختصاصی پنل تحت وب):${NC}"
+        read -p "Enter web panel port (e.g. 80, 443, 8080, 5000, 3000) [Default: ${default_port}]: " custom_port
+        PORT="${custom_port:-$default_port}"
+    else
+        PORT="${CLI_PORT}"
+        log_info "Using custom port specified via CLI: ${PORT}"
+    fi
 
     # Install npm dependencies
     log_info "Installing npm dependencies (may take a minute)..."
@@ -264,7 +270,7 @@ do_install() {
     run_as_root ln -sf "${APP_DIR}/install.sh" "${BIN_LINK_SHORT}"
 
     # Systemd Service Configuration
-    log_info "Configuring systemd service (${SERVICE_NAME}.service)..."
+    log_info "Configuring systemd service (${SERVICE_NAME}.service) on Port ${PORT}..."
     local run_user
     run_user=$(whoami)
     local node_path
@@ -278,11 +284,12 @@ After=network.target
 Type=simple
 User=${run_user}
 WorkingDirectory=${APP_DIR}
-ExecStart=${node_path} ${APP_DIR}/dist/server.cjs
+ExecStart=${node_path} ${APP_DIR}/dist/server.cjs --port ${PORT}
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
-Environment=PORT=${PORT}
+Environment=APP_PORT=${PORT}
+Environment=CUSTOM_PORT=${PORT}
 
 [Install]
 WantedBy=multi-user.target
@@ -293,6 +300,18 @@ WantedBy=multi-user.target
     run_as_root systemctl enable "${SERVICE_NAME}"
     run_as_root systemctl restart "${SERVICE_NAME}"
 
+    # Optional Domain & SSL Configuration
+    if [ -n "${CLI_DOMAIN}" ] || [ "${CLI_SSL}" = "1" ]; then
+        setup_domain_and_ssl "${PORT}" "${CLI_DOMAIN}" "${CLI_SSL}" "${CLI_EMAIL}"
+    else
+        echo ""
+        echo -e "${YELLOW}>> Domain & SSL Configuration (تنظیم دامنه و گرفتن SSL اختیاری):${NC}"
+        read -p "Do you want to configure a custom domain and optional SSL (Let's Encrypt)? [y/N]: " setup_domain_choice
+        if [[ "$setup_domain_choice" =~ ^[Yy]$ ]]; then
+            setup_domain_and_ssl "${PORT}"
+        fi
+    fi
+
     # Fetch Server IP
     local server_ip
     server_ip=$(curl -s -4 icanhazip.com || curl -s -4 ifconfig.me || echo "SERVER_IP")
@@ -301,11 +320,17 @@ WantedBy=multi-user.target
     echo "=================================================================="
     echo "  🎉 INSTALLATION COMPLETED SUCCESSFULLY!                         "
     echo "=================================================================="
+    echo -e "  Web Panel Port  : ${YELLOW}${PORT}${GREEN}"
     echo -e "  Web Panel URL   : ${CYAN}http://${server_ip}:${PORT}${GREEN}"
     echo -e "  Local URL       : ${CYAN}http://localhost:${PORT}${GREEN}"
     echo -e "  Service Name    : ${CYAN}${SERVICE_NAME}${GREEN}"
     echo -e "  Management CLI  : ${YELLOW}accountinglearn${GREEN} or ${YELLOW}acc-bot${GREEN}"
     echo "=================================================================="
+    echo -e "  Simply type ${YELLOW}accountinglearn${GREEN} anywhere in your terminal to   "
+    echo -e "  manage your service, change port, or configure domain & SSL!   "
+    echo "=================================================================="
+    echo -e "${NC}"
+}
     echo -e "  Simply type ${YELLOW}accountinglearn${GREEN} anywhere in your terminal to   "
     echo -e "  open the interactive management menu!                          "
     echo "=================================================================="
@@ -448,6 +473,68 @@ view_logs() {
     run_as_root journalctl -u "${SERVICE_NAME}" -f -n 50
 }
 
+change_port() {
+    print_banner
+    check_root
+    log_info "Configuring custom port for Accounting Bot Platform..."
+
+    local current_port="3000"
+    if [ -f "${SERVICE_FILE}" ]; then
+        current_port=$(grep "\-\-port" "${SERVICE_FILE}" | awk -F'--port ' '{print $2}' | tr -d ' ' || echo "3000")
+        if [ -z "$current_port" ]; then
+            current_port=$(grep "CUSTOM_PORT=" "${SERVICE_FILE}" | cut -d'=' -f2 || echo "3000")
+        fi
+    fi
+    current_port="${current_port:-3000}"
+
+    echo -e " Current Port: ${CYAN}${current_port}${NC}"
+    read -p "Enter new port number (e.g. 80, 443, 8080, 5000, 3000) [Default: 3000]: " new_port
+    new_port="${new_port:-3000}"
+
+    if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
+        log_error "Invalid port number. Port must be between 1 and 65535."
+        sleep 2
+        return 1
+    fi
+
+    log_info "Updating systemd service with Port ${new_port}..."
+    local run_user
+    run_user=$(whoami)
+    local node_path
+    node_path=$(command -v node)
+
+    local service_content="[Unit]
+Description=Accounting Bot Platform for Telegram and Bale (Iran)
+After=network.target
+
+[Service]
+Type=simple
+User=${run_user}
+WorkingDirectory=${APP_DIR}
+ExecStart=${node_path} ${APP_DIR}/dist/server.cjs --port ${new_port}
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=APP_PORT=${new_port}
+Environment=CUSTOM_PORT=${new_port}
+
+[Install]
+WantedBy=multi-user.target
+"
+    echo "${service_content}" | run_as_root tee "${SERVICE_FILE}" >/dev/null
+    run_as_root systemctl daemon-reload
+    run_as_root systemctl restart "${SERVICE_NAME}"
+
+    local server_ip
+    server_ip=$(curl -s -4 icanhazip.com || curl -s -4 ifconfig.me || echo "SERVER_IP")
+
+    log_success "Port successfully updated to ${new_port}!"
+    echo -e " Web Panel URL: ${CYAN}http://${server_ip}:${new_port}${NC}"
+    echo -e " Local URL:     ${CYAN}http://localhost:${new_port}${NC}"
+    echo ""
+    read -p "Press Enter to return to menu..." -r
+}
+
 # ==============================================================================
 # Interactive Menu (Sanaei Style)
 # ==============================================================================
@@ -470,16 +557,17 @@ show_menu() {
     echo -e " ${GREEN}4)${NC} Start Service"
     echo -e " ${GREEN}5)${NC} Stop Service"
     echo -e " ${GREEN}6)${NC} Restart Service"
-    echo -e " ${GREEN}7)${NC} Check Status & Port"
-    echo -e " ${GREEN}8)${NC} View Realtime Service Logs"
+    echo -e " ${GREEN}7)${NC} Change Web Panel Port (تغییر پورت پنل)"
+    echo -e " ${GREEN}8)${NC} Check Status & Port"
+    echo -e " ${GREEN}9)${NC} View Realtime Service Logs"
     echo "----------------------------------------------------------------"
-    echo -e " ${GREEN}9)${NC} Create Instant Backup & Send to Bots Now"
-    echo -e " ${GREEN}10)${NC} Enable Auto-Start on Boot"
-    echo -e " ${GREEN}11)${NC} Disable Auto-Start on Boot"
+    echo -e " ${GREEN}10)${NC} Create Instant Backup & Send to Bots Now"
+    echo -e " ${GREEN}11)${NC} Enable Auto-Start on Boot"
+    echo -e " ${GREEN}12)${NC} Disable Auto-Start on Boot"
     echo "----------------------------------------------------------------"
     echo -e " ${RED}0)${NC} Exit"
     echo ""
-    read -p "Please select an option [0-11]: " choice
+    read -p "Please select an option [0-12]: " choice
     case "$choice" in
         1) do_install ;;
         2) do_update ;;
@@ -487,11 +575,12 @@ show_menu() {
         4) start_service ;;
         5) stop_service ;;
         6) restart_service ;;
-        7) do_status ;;
-        8) view_logs ;;
-        9) create_and_send_backup "Manual Menu Trigger" ;;
-        10) enable_service ;;
-        11) disable_service ;;
+        7) change_port ;;
+        8) do_status ;;
+        9) view_logs ;;
+        10) create_and_send_backup "Manual Menu Trigger" ;;
+        11) enable_service ;;
+        12) disable_service ;;
         0) exit 0 ;;
         *) log_error "Invalid selection"; sleep 1; show_menu ;;
     esac
@@ -519,6 +608,9 @@ case "$1" in
         ;;
     --restart|-r)
         restart_service
+        ;;
+    --port|-p)
+        change_port
         ;;
     --logs|-l)
         view_logs

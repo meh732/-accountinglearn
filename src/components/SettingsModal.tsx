@@ -847,10 +847,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <div className="text-emerald-400"># Run Interactive Management Menu anytime:</div>
                   <div className="text-yellow-300">accountinglearn</div>
                   <div className="text-emerald-400 mt-2"># Quick flags:</div>
+                  <div>./install.sh --port        # Change Web Panel Port anytime (80, 443, 8080, 5000, etc.)</div>
                   <div>./install.sh --update      # Auto-backups to Telegram/Bale and pulls new updates</div>
                   <div>./install.sh --uninstall   # Auto-backups to Telegram/Bale and cleans service</div>
                   <div>./install.sh --backup      # Creates instant backup and dispatches to bots</div>
-                  <div>./install.sh --status      # Checks service state</div>
+                  <div>./install.sh --status      # Checks service state and active port</div>
+                </div>
+              </div>
+
+              {/* Custom Port Guide */}
+              <div className="bg-slate-950 border border-indigo-500/40 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-indigo-300 flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-indigo-400" />
+                    <span>تنظیم و نصب روی پورت دلخواه (Custom Port)</span>
+                  </h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono">
+                    Port 80 / 443 / 8080 / 5000 / Custom
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  سیستم به طور کامل از نصب و اجرا روی <b>هر پورت دلخواه لینوکسی</b> پشتیبانی می‌کند:
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                    <span className="font-bold text-slate-200 block">۱. هنگام نصب خودکار با اسکریپت:</span>
+                    <p className="text-slate-400 leading-relaxed">
+                      اسکریپت <code className="text-emerald-300 font-mono">install.sh</code> هنگام نصب از شما پورت دلخواه را سوال می‌کند (پیش‌فرض: ۳۰۰۰). می‌توانید با وارد کردن عدد <code className="text-amber-300 font-mono">80</code> سایت را بدون نیاز به وارد کردن دو نقطه پورت در مرورگر باز کنید!
+                    </p>
+                  </div>
+                  <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                    <span className="font-bold text-slate-200 block">۲. تغییر پورت در هر زمان بعد از نصب:</span>
+                    <p className="text-slate-400 leading-relaxed">
+                      کافیست در ترمینال دستور <code className="text-amber-300 font-mono">accountinglearn</code> را بزنید و گزینه <b>7 (تغییر پورت پنل)</b> را انتخاب کنید، یا مستقیماً دستور <code className="text-indigo-300 font-mono">accountinglearn --port</code> را اجرا کنید.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 border border-slate-800 p-3 rounded-xl font-mono text-xs text-slate-300 space-y-1" dir="ltr">
+                  <span className="text-slate-500 font-sans block text-[11px] mb-1 font-medium">اجرای دستی با خط فرمان Node / NPM:</span>
+                  <div><span className="text-emerald-400">npm start -- --port</span> <span className="text-amber-300">8080</span></div>
+                  <div><span className="text-emerald-400">APP_PORT</span>=<span className="text-amber-300">80</span> <span className="text-slate-200">node dist/server.cjs</span></div>
                 </div>
               </div>
 
