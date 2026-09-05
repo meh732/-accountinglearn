@@ -118,7 +118,7 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <span className="w-5 h-5 rounded-md bg-white/20 flex items-center justify-center text-xs font-bold">۱</span>
-            <span>آموزش صفر تا صد ایران</span>
+            <span>دوره ۳ ماهه صفر تا صد (روزی ۲-۳ پست)</span>
           </button>
 
           <button

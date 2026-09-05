@@ -469,6 +469,175 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   dir="rtl"
                 />
               </div>
+
+              {/* Daily Publishing Plan Mode (New Feature requested by user) */}
+              <div className="bg-slate-950/80 border border-emerald-500/30 rounded-2xl p-4 sm:p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-sm">
+                    🗓️
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-100">
+                      الگوی برنامه انتشار روزانه کانال (Daily Publishing Plan)
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      تنظیم تعداد آموزش در روز و دریافت خودکار اخبار و طنز از اینترنت (بدون نیاز به هوش مصنوعی)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <label
+                    className={`p-3.5 rounded-xl border cursor-pointer flex flex-col justify-between gap-2 transition-all ${
+                      formData.dailyPlanMode !== "three_lessons"
+                        ? "bg-emerald-950/40 border-emerald-500/60 ring-1 ring-emerald-500/40"
+                        : "bg-slate-900 border-slate-800 hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="dailyPlanMode"
+                          checked={formData.dailyPlanMode !== "three_lessons"}
+                          onChange={() => setFormData({ ...formData, dailyPlanMode: "balanced_mix" })}
+                          className="text-emerald-500 focus:ring-emerald-500"
+                        />
+                        <span className="text-xs font-bold text-white">پکیج ۳ تایی متوازن (پیشنهادی)</span>
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-medium">
+                        بدون نیاز به AI
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      <b>۱ پست آموزشی روزانه</b> + <b>۱ پست خبری حسابداری و مالیاتی از وب</b> + <b>۱ پست فان و طنز آخر شب</b>
+                    </p>
+                  </label>
+
+                  <label
+                    className={`p-3.5 rounded-xl border cursor-pointer flex flex-col justify-between gap-2 transition-all ${
+                      formData.dailyPlanMode === "three_lessons"
+                        ? "bg-sky-950/40 border-sky-500/60 ring-1 ring-sky-500/40"
+                        : "bg-slate-900 border-slate-800 hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name="dailyPlanMode"
+                          checked={formData.dailyPlanMode === "three_lessons"}
+                          onChange={() => setFormData({ ...formData, dailyPlanMode: "three_lessons" })}
+                          className="text-sky-500 focus:ring-sky-500"
+                        />
+                        <span className="text-xs font-bold text-white">پکیج ۳ تایی تمام آموزشی</span>
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-sky-500/20 text-sky-300 font-medium">
+                        تخصصی
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      <b>۳ پست آموزشی در روز</b> (صبح: درس مفهومی، ظهر: کارگاه سند دوبل، شب: آزمون تستی ۴ گزینه‌ای)
+                    </p>
+                  </label>
+                </div>
+
+                {/* Posting Schedule Times */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-800/80">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      ساعت پست صبح (آموزش):
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.morningPostTime || "09:00"}
+                      onChange={(e) => setFormData({ ...formData, morningPostTime: e.target.value })}
+                      placeholder="09:00"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-mono text-center focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      ساعت پست ظهر (خبر وب / سند):
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.noonPostTime || "14:30"}
+                      onChange={(e) => setFormData({ ...formData, noonPostTime: e.target.value })}
+                      placeholder="14:30"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-mono text-center focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">
+                      ساعت پست شب (فان و طنز / آزمون):
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.eveningPostTime || "22:00"}
+                      onChange={(e) => setFormData({ ...formData, eveningPostTime: e.target.value })}
+                      placeholder="22:00"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-100 font-mono text-center focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Fun Preference Selector */}
+                <div className="pt-3 border-t border-slate-800/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <span>🎭 نوع و سلیقه طنز آخر شب (پست ساعت {formData.eveningPostTime || "22:00"}):</span>
+                    </label>
+                    <span className="text-[10px] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                      طنز جذاب بدون هوش مصنوعی
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    مشخص کنید پست‌های طنز و رفع خستگی آخر شب بیشتر روی چه سوژه‌هایی تمرکز داشته باشند:
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                    {[
+                      {
+                        id: "all",
+                        title: "✨ ترکیبی و متنوع",
+                        desc: "هم طنز جذاب روزمره/زندگی و هم میم‌های حسابداری",
+                      },
+                      {
+                        id: "general",
+                        title: "🎭 طنز جذاب روزمره و عادی",
+                        desc: "شوخی‌های زندگی، کارمندی، فناوری، خرید و خانواده",
+                      },
+                      {
+                        id: "accounting",
+                        title: "☕ طنز تخصصی حسابداری",
+                        desc: "اختلاف تراز، اکسل، ممیزی، اسناد مالی و انبارگردانی",
+                      },
+                    ].map((opt) => (
+                      <button
+                        type="button"
+                        key={opt.id}
+                        onClick={() => setFormData({ ...formData, funPreference: opt.id as any })}
+                        className={`p-3 rounded-xl border text-right transition-all flex flex-col justify-between gap-1.5 ${
+                          (formData.funPreference || "all") === opt.id
+                            ? "bg-amber-500/15 border-amber-500/50 text-amber-200 ring-1 ring-amber-500/30"
+                            : "bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800/60"
+                        }`}
+                      >
+                        <div className="text-xs font-bold text-slate-100 flex items-center justify-between">
+                          <span>{opt.title}</span>
+                          {(formData.funPreference || "all") === opt.id && (
+                            <span className="w-2 h-2 rounded-full bg-amber-400" />
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400 leading-relaxed">
+                          {opt.desc}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 

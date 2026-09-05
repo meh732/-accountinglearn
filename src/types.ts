@@ -1,6 +1,10 @@
-export type PostStyle = "zero_to_hero" | "advanced" | "qa" | "call_for_questions" | "daily_quiz";
+export type PostStyle = "zero_to_hero" | "advanced" | "qa" | "call_for_questions" | "daily_quiz" | "accounting_news" | "accounting_fun";
 
 export type MessengerPlatform = "telegram" | "bale";
+
+export type DailyPlanMode = "three_lessons" | "balanced_mix";
+
+export type FunPreference = "all" | "general" | "accounting";
 
 export interface BotConfig {
   telegramToken: string;
@@ -12,11 +16,37 @@ export interface BotConfig {
   autoHashtags: string; // e.g. #آموزش_حسابداری #مالیات #سامانه_مودیان
   simulationMode: boolean;
   miniAppUrl?: string; // Optional custom WebApp URL
+  dailyPlanMode?: DailyPlanMode; // "three_lessons" (3 educational) vs "balanced_mix" (1 lesson + 1 news + 1 fun)
+  funPreference?: FunPreference; // "all" (ترکیبی) | "general" (طنز جذاب عمومی) | "accounting" (طنز تخصصی حسابداری)
+  morningPostTime?: string; // default: "09:00"
+  noonPostTime?: string; // default: "14:30"
+  eveningPostTime?: string; // default: "22:00"
   autoBackupEnabled?: boolean;
   autoBackupInterval?: "daily" | "weekly" | "every_publish";
   lastBackupAt?: string;
   telegramAdminChatId?: string; // numeric or @admin
   baleAdminChatId?: string; // numeric or @admin
+}
+
+export interface AccountingNewsItem {
+  id: string;
+  title: string;
+  summary: string;
+  source: string;
+  sourceUrl?: string;
+  pubDate: string;
+  category: "سامانه مودیان" | "قوانین مالیاتی" | "حقوق و دستمزد" | "استانداردهای حسابداری" | "بورس و اقتصاد" | string;
+  tags: string[];
+}
+
+export interface AccountingFunItem {
+  id: string;
+  title: string;
+  content: string;
+  type?: "general" | "accounting"; // "general" = طنز جذاب عمومی و روزمره | "accounting" = طنز تخصصی حسابداری
+  category: string;
+  punchline?: string;
+  tags: string[];
 }
 
 export interface DailyQuizItem {
@@ -64,6 +94,40 @@ export interface StudentTestResult {
   timestamp: string;
 }
 
+export type PostSlotType = "morning" | "noon" | "evening";
+
+export interface DayPostItem {
+  id: string;
+  slot: PostSlotType;
+  slotTitle: string; // "پست صبح (۰۹:۰۰) - آموزش مفهومی" | "پست ظهر (۱۴:۳۰) - کارگاه عملی و سند" | "پست شب (۲۰:۰۰) - آزمون و چالش"
+  title: string;
+  category: string;
+  content: string;
+  practicalExample?: string;
+  keyRule?: string;
+  quizQuestion?: string;
+  quizOptions?: string[];
+  correctOptionIndex?: number;
+  explanation?: string;
+  tags: string[];
+  isPublished?: boolean;
+}
+
+export interface ThreeMonthDayItem {
+  id: string;
+  dayNumber: number; // 1 to 90
+  monthNumber: 1 | 2 | 3;
+  weekNumber: number; // 1 to 12
+  monthTitle: string;
+  weekTitle: string;
+  title: string;
+  summary: string;
+  category: "مفاهیم پایه" | "اسناد و دفاتر" | "حقوق و دستمزد" | "مالیات و مودیان" | "صورت‌های مالی";
+  posts: DayPostItem[]; // The 2-3 daily posts
+  isPublished?: boolean;
+  publishedCount?: number;
+}
+
 export interface LessonItem {
   id: string;
   lessonNumber: number;
@@ -76,6 +140,10 @@ export interface LessonItem {
   quizQuestion?: string;
   tags: string[];
   isCustom?: boolean;
+  dayNumber?: number;
+  monthNumber?: 1 | 2 | 3;
+  weekNumber?: number;
+  posts?: DayPostItem[];
 }
 
 export interface AdvancedTopic {

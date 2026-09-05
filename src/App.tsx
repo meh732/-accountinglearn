@@ -18,6 +18,7 @@ import {
   MessengerPlatform,
   DailyQuizItem,
   PracticeScenario,
+  ThreeMonthDayItem,
 } from "./types";
 import {
   initialLessons,
@@ -28,6 +29,7 @@ import {
   initialDailyQuizzes,
   initialPracticeScenarios,
 } from "./data/quizData";
+import { initialThreeMonthCurriculum } from "./data/threeMonthCurriculum";
 import { CheckCircle, AlertCircle, Info, Sparkles, Smartphone, ArrowLeft } from "lucide-react";
 
 export default function App() {
@@ -111,6 +113,18 @@ export default function App() {
       }
     }
     return initialPracticeScenarios;
+  });
+
+  const [threeMonthDays, setThreeMonthDays] = useState<ThreeMonthDayItem[]>(() => {
+    const saved = localStorage.getItem("accounting_bot_3month_days");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Error reading 3month days:", e);
+      }
+    }
+    return initialThreeMonthCurriculum;
   });
 
   const [isMiniAppModalOpen, setIsMiniAppModalOpen] = useState(false);
@@ -212,6 +226,23 @@ export default function App() {
     localStorage.setItem("accounting_bot_history", JSON.stringify(historyLogs));
   }, [historyLogs]);
 
+  useEffect(() => {
+    localStorage.setItem("accounting_bot_3month_days", JSON.stringify(threeMonthDays));
+  }, [threeMonthDays]);
+
+  const handleUpdateThreeMonthDay = (updatedDay: ThreeMonthDayItem) => {
+    setThreeMonthDays((prev) => {
+      const idx = prev.findIndex((d) => d.dayNumber === updatedDay.dayNumber);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = updatedDay;
+        return next;
+      }
+      return [...prev, updatedDay];
+    });
+    showToast(`پکیج روز شماره ${updatedDay.dayNumber} با موفقیت به‌روزرسانی شد.`, "success");
+  };
+
   // Handlers
   const handleOpenPreview = (title: string, formattedText: string) => {
     setPreviewModal({
@@ -280,8 +311,11 @@ export default function App() {
           body: JSON.stringify({
             data: {
               lessons,
+              threeMonthDays,
               topics,
               questions,
+              quizzes,
+              scenarios,
               config,
               historyLogs: [newLog, ...historyLogs],
               timestamp: new Date().toISOString(),
@@ -315,13 +349,14 @@ export default function App() {
 
   const handleRestoreData = (imported: any) => {
     if (imported.lessons && Array.isArray(imported.lessons)) setLessons(imported.lessons);
+    if (imported.threeMonthDays && Array.isArray(imported.threeMonthDays)) setThreeMonthDays(imported.threeMonthDays);
     if (imported.topics && Array.isArray(imported.topics)) setTopics(imported.topics);
     if (imported.questions && Array.isArray(imported.questions)) setQuestions(imported.questions);
     if (imported.quizzes && Array.isArray(imported.quizzes)) setQuizzes(imported.quizzes);
     if (imported.scenarios && Array.isArray(imported.scenarios)) setScenarios(imported.scenarios);
     if (imported.historyLogs && Array.isArray(imported.historyLogs)) setHistoryLogs(imported.historyLogs);
     if (imported.config && typeof imported.config === "object") setConfig((prev) => ({ ...prev, ...imported.config }));
-    showToast("کلیه اطلاعات، دروس، آزمون‌ها و سوالات از فایل بکاپ با موفقیت بازیابی شد.", "success");
+    showToast("کلیه اطلاعات، دوره ۳ ماهه، آزمون‌ها و سوالات از فایل بکاپ با موفقیت بازیابی شد.", "success");
   };
 
   const handleAddLesson = (newLesson: LessonItem) => {
@@ -481,9 +516,11 @@ export default function App() {
         {activeTab === "zero_to_hero" && (
           <ZeroToHeroTab
             lessons={lessons}
+            threeMonthDays={threeMonthDays}
             config={config}
             onSelectForPublish={handleOpenPreview}
-            onAddLesson={handleAddLesson}
+            onUpdateDay={handleUpdateThreeMonthDay}
+            onSendQuizToChannel={handleSendQuizToChannel}
           />
         )}
 
@@ -583,6 +620,7 @@ export default function App() {
         config={config}
         allAppData={{
           lessons,
+          threeMonthDays,
           topics,
           questions,
           quizzes,

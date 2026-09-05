@@ -3,6 +3,11 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
+import {
+  fetchInternetAccountingNews,
+  accountingFunPosts,
+  verifiedAccountingNews,
+} from "./src/data/accountingNewsAndFun";
 
 dotenv.config();
 
@@ -557,6 +562,42 @@ async function startServer() {
   "explanation": "پاسخ تشریحی کامل با استناد به ماده قانون یا استاندارد حسابداری ایران",
   "tags": ["#آزمون_حسابداری", "#تست_روزانه"]
 }`;
+      } else if (type === "three_post_day_pack") {
+        const dayNumber = req.body.dayNumber || 1;
+        userPrompt = `شما باید یک پکیج روزانه ۳ پستی کامل (صبح، ظهر، شب) برای روز شماره ${dayNumber} از دوره ۳ ماهه آموزش صفر تا صد حسابداری ایران تولید کنید.
+موضوع روز: "${topic || "مفاهیم اساسی، ماهیت حساب‌ها یا مالیات"}"
+جزئیات درخواستی: ${promptDetails || "کاملاً کاربردی، دارای مثال عددی ریالی دقیق و مستند به قوانین جاری ۱۴۰۳ ایران"}
+
+پکیج روزانه باید شامل ۳ پست با زمان‌بندی زیر باشد:
+۱. پست صبح (۰۹:۰۰): درس مفهومی و تشریحی + واژگان تخصصی + نکته طلایی بازار کار
+۲. پست ظهر (۱۴:۳۰): کارگاه عملی و سناریوی واقعی بازار کار ایران همراه با ثبت سند دوبل دفتر روزنامه (بدهکار و بستانکار ریالی)
+۳. پست شب (۲۰:۰۰): آزمون تستی ۴ گزینه‌ای به همراه گزینه‌ها، گزینه صحیح (اندیس ۰ تا ۳) و تحلیل مستند قانونی
+
+پاسخ را دقیقاً در قالب JSON معتبر زیر بازگردانید (بدون هیچ کلمه اضافی، صرفاً یک آبجکت JSON معتبر):
+{
+  "dayTitle": "عنوان اصلی درس این روز",
+  "category": "مفاهیم پایه",
+  "morningPost": {
+    "title": "عنوان درس صبحگاهی",
+    "content": "متن کامل آموزشی مفهومی به زبان روان و تخصصی",
+    "keyRule": "نکته طلایی قانون یا خطای مکرر مبتدیان",
+    "tags": ["#آموزش_حسابداری", "#درس_روزانه"]
+  },
+  "noonPost": {
+    "title": "عنوان کارگاه عملی و سناریوی بازار کار",
+    "content": "شرح سناریوی شرکت و مبالغ ریالی و ماهیت حساب‌ها",
+    "practicalExample": "بدهکار: حساب ... ریال\\nبستانکار: حساب ... ریال",
+    "tags": ["#کارگاه_عملی", "#سند_حسابداری"]
+  },
+  "eveningPost": {
+    "title": "آزمون شبانه سنجش یادگیری",
+    "question": "متن سوال ۴ گزینه‌ای استاندارد",
+    "options": ["گزینه اول", "گزینه دوم", "گزینه سوم", "گزینه چهارم"],
+    "correctOptionIndex": 0,
+    "explanation": "تشریح کامل دلیل درستی گزینه با استناد به قانون یا استاندارد حسابداری",
+    "tags": ["#آزمون_روزانه", "#تست_حسابداری"]
+  }
+}`;
       } else if (type === "call_for_questions") {
         userPrompt = `یک پست تلگرامی و بله بسیار جذاب برای «دعوت از اعضای کانال جهت ارسال سوالات حسابداری و مالیاتی» بنویس.
 موضوع یا هفته: "${topic || "هفته مالیات و سامانه مودیان"}".
@@ -574,15 +615,78 @@ async function startServer() {
         },
       });
 
+      let parsedData: any = null;
+      if (type === "three_post_day_pack" || type === "daily_quiz") {
+        try {
+          const raw = (response.text || "").trim();
+          const cleanJson = raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim();
+          parsedData = JSON.parse(cleanJson);
+        } catch (parseErr) {
+          console.warn("JSON parse warning:", parseErr);
+        }
+      }
+
       return res.json({
         ok: true,
         content: response.text,
+        data: parsedData,
       });
     } catch (err: any) {
       console.error("Gemini Error:", err);
       return res.status(500).json({
         ok: false,
         error: err.message || "خطا در تولید محتوا توسط هوش مصنوعی",
+      });
+    }
+  });
+
+  // Get Internet Accounting News (No AI needed, real web/RSS feeds + verified official portals)
+  app.get("/api/accounting-news", async (req, res) => {
+    try {
+      const category = (req.query.category as string) || "all";
+      const items = await fetchInternetAccountingNews(category);
+      return res.json({
+        ok: true,
+        items,
+        count: items.length,
+        source: "RSS / Web Feeds (بدون نیاز به هوش مصنوعی)",
+      });
+    } catch (err: any) {
+      console.warn("Error fetching live news, falling back to curated news:", err);
+      return res.json({
+        ok: true,
+        items: verifiedAccountingNews,
+        count: verifiedAccountingNews.length,
+        source: "پایگاه‌های مالیاتی و حسابداری معتبر (آفلاین)",
+      });
+    }
+  });
+
+  // Get Fun / Memes / Late-Night Humor (General & Accounting - No AI needed)
+  app.get("/api/accounting-fun", (req, res) => {
+    try {
+      const category = (req.query.category as string) || "all";
+      const type = (req.query.type as string) || "all";
+      let items = accountingFunPosts;
+
+      if (type && type !== "all") {
+        items = items.filter((i) => i.type === type);
+      }
+
+      if (category && category !== "all") {
+        items = items.filter((i) => i.category.includes(category) || i.tags.some((t) => t.includes(category)));
+      }
+
+      return res.json({
+        ok: true,
+        items,
+        count: items.length,
+        source: "بانک طنز جذاب روزمره و حسابداری (بدون نیاز به هوش مصنوعی)",
+      });
+    } catch (err: any) {
+      return res.status(500).json({
+        ok: false,
+        error: err.message,
       });
     }
   });

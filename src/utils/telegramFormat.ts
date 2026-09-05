@@ -1,4 +1,172 @@
-import { LessonItem, AdvancedTopic, QuestionItem, BotConfig } from "../types";
+import {
+  LessonItem,
+  AdvancedTopic,
+  QuestionItem,
+  BotConfig,
+  DayPostItem,
+  AccountingNewsItem,
+  AccountingFunItem,
+} from "../types";
+
+/**
+ * Format an Internet Accounting News Post (No AI required)
+ */
+export function formatNewsPost(news: AccountingNewsItem, config: BotConfig): string {
+  const parts: string[] = [];
+
+  parts.push(`📰 <b>تازه‌های خبری حسابداری، مالیات و اقتصاد ایران</b>`);
+  parts.push(`🏷 دسته‌بندی: <i>${news.category}</i>`);
+  parts.push(`━━━━━━━━━━━━━━━━━━━━━`);
+
+  parts.push(`📌 <b>${news.title}</b>`);
+  parts.push(`\n${news.summary}`);
+
+  if (news.source) {
+    parts.push(`\n🌐 <b>منبع خبر:</b> <code>${news.source}</code>`);
+    if (news.sourceUrl) {
+      parts.push(`🔗 <a href="${news.sourceUrl}">مشاهده متن کامل خبر در پایگاه منبع</a>`);
+    }
+  }
+
+  parts.push(`━━━━━━━━━━━━━━━━━━━━━`);
+  if (config.channelSignature) {
+    parts.push(config.channelSignature);
+  }
+
+  const allTags = Array.from(
+    new Set([
+      ...(news.tags || []),
+      "#اخبار_حسابداری",
+      "#اخبار_مالیاتی",
+      ...(config.autoHashtags ? config.autoHashtags.split(" ").filter(Boolean) : []),
+    ])
+  ).join(" ");
+
+  if (allTags) {
+    parts.push(allTags);
+  }
+
+  return parts.join("\n\n");
+}
+
+/**
+ * Format a Late-Night Humor / Fun Post (General or Accounting - No AI required)
+ */
+export function formatFunPost(fun: AccountingFunItem, config: BotConfig): string {
+  const parts: string[] = [];
+
+  const isGeneral = fun.type === "general";
+
+  if (isGeneral) {
+    parts.push(`🌙 <b>طنز و لبخند آخر شب | زنگ خنده و رفع خستگی</b> ✨`);
+  } else {
+    parts.push(`🌙 <b>طنز و میم تخصصی حسابداری | زنگ خنده آخر شب</b> ☕`);
+  }
+
+  parts.push(`🎭 <i>${fun.category}</i>`);
+  parts.push(`━━━━━━━━━━━━━━━━━━━━━`);
+
+  parts.push(`✨ <b>${fun.title}</b>`);
+  parts.push(`\n${fun.content}`);
+
+  if (fun.punchline) {
+    parts.push(`\n💡 <b>حکمت شبانه:</b>`);
+    parts.push(`<blockquote>${fun.punchline}</blockquote>`);
+  }
+
+  parts.push(`━━━━━━━━━━━━━━━━━━━━━`);
+  if (isGeneral) {
+    parts.push(`✨ <i>شبتون پر از آرامش، لبتون خندون و فرداتون سرشار از انرژی مثبت!</i>`);
+  } else {
+    parts.push(`☕ <i>شبتون آروم و تراز زندگیتون همیشه دقیق و بی‌اختلاف!</i>`);
+  }
+
+  if (config.channelSignature) {
+    parts.push(config.channelSignature);
+  }
+
+  const defaultTags = isGeneral
+    ? ["#طنز_شبانه", "#لبخند", "#خستگی_در_کنیم", "#طنز_روزمره"]
+    : ["#طنز_حسابداری", "#لبخند_شبانه", "#خستگی_در_کنیم", "#میم_مالی"];
+
+  const allTags = Array.from(
+    new Set([
+      ...(fun.tags || []),
+      ...defaultTags,
+      ...(config.autoHashtags ? config.autoHashtags.split(" ").filter(Boolean) : []),
+    ])
+  ).join(" ");
+
+  if (allTags) {
+    parts.push(allTags);
+  }
+
+  return parts.join("\n\n");
+}
+
+/**
+ * Format a Day-Post (Morning, Noon, Evening) for Telegram and Bale
+ */
+export function formatDayPost(
+  dayNumber: number,
+  dayTitle: string,
+  post: DayPostItem,
+  config: BotConfig
+): string {
+  const parts: string[] = [];
+
+  const slotBadge =
+    post.slot === "morning"
+      ? "🌅 <b>پست نوبت صبح (ساعت ۰۹:۰۰) - آموزش مفهومی</b>"
+      : post.slot === "noon"
+      ? "☀️ <b>پست نوبت ظهر (ساعت ۱۴:۳۰) - کارگاه عملی و ثبت سند</b>"
+      : "🌙 <b>پست نوبت شب (ساعت ۲۰:۰۰) - آزمون و چالش روزانه</b>";
+
+  parts.push(`📘 <b>دوره جامع ۳ ماهه صفر تا صد حسابداری ایران | روز شماره ${dayNumber}</b>`);
+  parts.push(slotBadge);
+  parts.push(`📌 <b>${post.title || dayTitle}</b>`);
+  parts.push(`━━━━━━━━━━━━━━━━━━━━━`);
+
+  parts.push(post.content);
+
+  if (post.practicalExample) {
+    parts.push(`\n📝 <b>ثبت دفتر روزنامه و مثال ریالی:</b>`);
+    parts.push(`<code>${post.practicalExample}</code>`);
+  }
+
+  if (post.keyRule) {
+    parts.push(`\n💡 <b>نکته طلایی قانون و بازار کار:</b>`);
+    parts.push(`<blockquote>${post.keyRule}</blockquote>`);
+  }
+
+  if (post.quizQuestion) {
+    parts.push(`\n❓ <b>سوال تستی روز:</b>`);
+    parts.push(`<blockquote>${post.quizQuestion}</blockquote>`);
+
+    if (post.quizOptions && post.quizOptions.length > 0) {
+      parts.push(`<b>گزینه‌ها:</b>`);
+      post.quizOptions.forEach((opt, idx) => {
+        const icons = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"];
+        parts.push(`${icons[idx] || `(${idx + 1})`} ${opt}`);
+      });
+      parts.push(`\n✍️ <i>پاسخ خود را در کامنت‌ها بنویسید یا برای آزمون زنده وارد مینی‌اپ شوید.</i>`);
+    }
+  }
+
+  parts.push(`━━━━━━━━━━━━━━━━━━━━━`);
+  if (config.channelSignature) {
+    parts.push(config.channelSignature);
+  }
+
+  const allTags = Array.from(
+    new Set([...(post.tags || []), ...(config.autoHashtags ? config.autoHashtags.split(" ").filter(Boolean) : [])])
+  ).join(" ");
+  if (allTags) {
+    parts.push(allTags);
+  }
+
+  return parts.join("\n\n");
+}
 
 /**
  * Format a Zero-to-Hero Lesson for Telegram and Bale
