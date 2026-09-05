@@ -229,11 +229,55 @@ export default function App() {
       );
 
       setPreviewModal((prev) => ({ ...prev, isOpen: false }));
+
+      // Auto-Backup dispatch if configured for every publish
+      if (config.autoBackupEnabled && config.autoBackupInterval === "every_publish") {
+        fetch("/api/backup-send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            data: {
+              lessons,
+              topics,
+              questions,
+              config,
+              historyLogs: [newLog, ...historyLogs],
+              timestamp: new Date().toISOString(),
+            },
+            config: {
+              telegramToken: config.telegramToken,
+              telegramAdminChatId: config.telegramAdminChatId || config.telegramChannel,
+              baleToken: config.baleToken,
+              baleAdminChatId: config.baleAdminChatId || config.baleChannel,
+            },
+            caption: "📦 بکاپ خودکار پس از انتشار پست جدید در کانال",
+          }),
+        })
+          .then((r) => r.json())
+          .then((resData) => {
+            if (resData.ok) {
+              setConfig((prev) => ({
+                ...prev,
+                lastBackupAt: new Date().toLocaleTimeString("fa-IR"),
+              }));
+            }
+          })
+          .catch((e) => console.error("Auto backup error:", e));
+      }
     } catch (err: any) {
       showToast(err.message || "خطا در ارسال پیام", "error");
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleRestoreData = (imported: any) => {
+    if (imported.lessons && Array.isArray(imported.lessons)) setLessons(imported.lessons);
+    if (imported.topics && Array.isArray(imported.topics)) setTopics(imported.topics);
+    if (imported.questions && Array.isArray(imported.questions)) setQuestions(imported.questions);
+    if (imported.historyLogs && Array.isArray(imported.historyLogs)) setHistoryLogs(imported.historyLogs);
+    if (imported.config && typeof imported.config === "object") setConfig((prev) => ({ ...prev, ...imported.config }));
+    showToast("کلیه اطلاعات، دروس و سوالات از فایل بکاپ با موفقیت بازیابی شد.", "success");
   };
 
   const handleAddLesson = (newLesson: LessonItem) => {
@@ -357,9 +401,18 @@ export default function App() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         config={config}
+        allAppData={{
+          lessons,
+          topics,
+          questions,
+          config,
+          historyLogs,
+          exportedAt: new Date().toISOString(),
+        }}
+        onRestoreData={handleRestoreData}
         onSaveConfig={(newCfg) => {
           setConfig(newCfg);
-          showToast("تنظیمات ربات‌ها و کانال‌ها با موفقیت ذخیره شد.", "success");
+          showToast("تنظیمات ربات‌ها، کانال‌ها و بکاپ با موفقیت ذخیره شد.", "success");
         }}
       />
 

@@ -6,9 +6,16 @@ import {
   Radio,
   CheckCircle2,
   AlertCircle,
-  ExternalLink,
   Save,
   HelpCircle,
+  Archive,
+  Send,
+  Download,
+  Upload,
+  RefreshCw,
+  Clock,
+  Database,
+  Terminal,
 } from "lucide-react";
 import { BotConfig } from "../types";
 
@@ -17,6 +24,8 @@ interface SettingsModalProps {
   onClose: () => void;
   config: BotConfig;
   onSaveConfig: (newConfig: BotConfig) => void;
+  allAppData?: any;
+  onRestoreData?: (importedData: any) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -24,11 +33,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   config,
   onSaveConfig,
+  allAppData,
+  onRestoreData,
 }) => {
   if (!isOpen) return null;
 
-  const [formData, setFormData] = useState<BotConfig>({ ...config });
-  const [activeTab, setActiveTab] = useState<"credentials" | "branding" | "guide">("credentials");
+  const [formData, setFormData] = useState<BotConfig>({
+    autoBackupEnabled: true,
+    autoBackupInterval: "daily",
+    telegramAdminChatId: "",
+    baleAdminChatId: "",
+    ...config,
+  });
+
+  const [activeTab, setActiveTab] = useState<"credentials" | "branding" | "backup" | "guide">("credentials");
 
   // Connection test states
   const [tgTestState, setTgTestState] = useState<{ loading: boolean; result?: any; error?: string }>({
@@ -37,6 +55,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [baleTestState, setBaleTestState] = useState<{ loading: boolean; result?: any; error?: string }>({
     loading: false,
   });
+
+  // Backup dispatch state
+  const [backupSending, setBackupSending] = useState(false);
+  const [backupResult, setBackupResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const handleTestTelegram = async () => {
     setTgTestState({ loading: true });
@@ -82,6 +104,94 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  // Trigger Immediate Backup Dispatch to Bots
+  const handleTriggerManualBackup = async () => {
+    setBackupSending(true);
+    setBackupResult(null);
+    try {
+      const payloadData = allAppData || {
+        config: formData,
+        timestamp: new Date().toISOString(),
+      };
+
+      const res = await fetch("/api/backup-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data: payloadData,
+          config: {
+            telegramToken: formData.telegramToken,
+            telegramAdminChatId: formData.telegramAdminChatId || formData.telegramChannel,
+            baleToken: formData.baleToken,
+            baleAdminChatId: formData.baleAdminChatId || formData.baleChannel,
+          },
+          caption: "📦 فایل پشتیبان دستی سیستم حسابداری ایران",
+        }),
+      });
+
+      const data = await res.json();
+      if (data.ok) {
+        const nowFa = new Date().toLocaleTimeString("fa-IR");
+        setFormData((prev) => ({ ...prev, lastBackupAt: nowFa }));
+        setBackupResult({
+          ok: true,
+          message: `بکاپ با موفقیت آماده و به بات‌های تلگرام و بله ادمین ارسال گردید! (${data.filename})`,
+        });
+      } else {
+        setBackupResult({
+          ok: false,
+          message: data.error || "خطا در ارسال بکاپ به ربات‌ها",
+        });
+      }
+    } catch (err: any) {
+      setBackupResult({
+        ok: false,
+        message: err.message || "خطای شبکه هنگام ارسال بکاپ",
+      });
+    } finally {
+      setBackupSending(false);
+    }
+  };
+
+  // Download direct local JSON backup
+  const handleDownloadBackup = () => {
+    const payload = allAppData || { config: formData, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `accounting_bot_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Restore backup from uploaded JSON file
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result as string;
+        const parsed = JSON.parse(content);
+        if (onRestoreData) {
+          onRestoreData(parsed);
+          setBackupResult({
+            ok: true,
+            message: "اطلاعات با موفقیت از فایل پشتیبان بازیابی شد.",
+          });
+        }
+      } catch (err) {
+        setBackupResult({
+          ok: false,
+          message: "فرمت فایل نامعتبر است. فایل JSON معتبر انتخاب کنید.",
+        });
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleSave = () => {
     onSaveConfig(formData);
     onClose();
@@ -99,10 +209,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
             <div>
               <h3 className="font-bold text-slate-100 text-sm sm:text-base">
-                تنظیمات ربات‌های تلگرام و بله
+                تنظیمات ربات‌های تلگرام و بله و پشتیبان‌گیری
               </h3>
               <p className="text-xs text-slate-400">
-                پیکربندی توکن ربات‌ها، آیدی کانال‌ها، امضای پست‌ها و تست اتصال
+                پیکربندی توکن‌ها، کانال‌ها، امضا، و زمان‌بندی ارسال اتوماتیک بکاپ به بات‌ها
               </p>
             </div>
           </div>
@@ -115,10 +225,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         </div>
 
         {/* Modal Sub-Tabs */}
-        <div className="px-5 pt-3 border-b border-slate-800 flex items-center gap-2 bg-slate-900/50">
+        <div className="px-5 pt-3 border-b border-slate-800 flex items-center gap-2 bg-slate-900/50 overflow-x-auto scrollbar-none">
           <button
             onClick={() => setActiveTab("credentials")}
-            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors ${
+            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
               activeTab === "credentials"
                 ? "border-emerald-500 text-emerald-400"
                 : "border-transparent text-slate-400 hover:text-slate-200"
@@ -128,24 +238,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveTab("branding")}
-            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors ${
+            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
               activeTab === "branding"
                 ? "border-emerald-500 text-emerald-400"
                 : "border-transparent text-slate-400 hover:text-slate-200"
             }`}
           >
-            هویت کانال و امضای پست‌ها
+            هویت کانال و امضا
+          </button>
+          <button
+            onClick={() => setActiveTab("backup")}
+            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === "backup"
+                ? "border-amber-500 text-amber-400"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Archive className="w-3.5 h-3.5 text-amber-400" />
+            <span>بکاپ اتوماتیک به بات‌ها</span>
           </button>
           <button
             onClick={() => setActiveTab("guide")}
-            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === "guide"
                 ? "border-emerald-500 text-emerald-400"
                 : "border-transparent text-slate-400 hover:text-slate-200"
             }`}
           >
             <HelpCircle className="w-3.5 h-3.5" />
-            <span>راهنمای ساخت ربات تلگرام و بله</span>
+            <span>اسکریپت لینوکس و راهنما</span>
           </button>
         </div>
 
@@ -351,12 +472,199 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* Tab 3: Setup Guide */}
+          {/* Tab 3: Automatic Backup to Bots */}
+          {activeTab === "backup" && (
+            <div className="space-y-6">
+              
+              {/* Header Box */}
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 sm:p-5">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                    <Archive className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-100">
+                      پشتیبان‌گیری خودکار و ارسال مستقیم به بات‌های تلگرام و بله
+                    </h4>
+                    <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                      با فعال بودن این قابلیت، یک نسخه کامل و رمزگذاری‌شده از دروس، مباحث تخصصی، صندوق سوالات و پاسخ‌های ادمین
+                      به صورت فایل سندی JSON مستقیماً به پی‌وی ادمین یا کانال پشتیبان ارسال می‌شود.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Automation Switches */}
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <div>
+                    <span className="text-xs font-bold text-slate-200 block">ارسال خودکار بکاپ فعال باشد</span>
+                    <span className="text-[11px] text-slate-400">بکاپ‌ها به صورت زمان‌بندی شده به ربات‌ها فرستاده می‌شوند</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.autoBackupEnabled !== false}
+                      onChange={(e) => setFormData({ ...formData, autoBackupEnabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>دوره تناوب پشتیبان‌گیری خودکار:</span>
+                    </label>
+                    <select
+                      value={formData.autoBackupInterval || "daily"}
+                      onChange={(e) => setFormData({ ...formData, autoBackupInterval: e.target.value as any })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                      dir="rtl"
+                    >
+                      <option value="daily">روزانه (هر ۲۴ ساعت یکبار)</option>
+                      <option value="weekly">هفتگی (هر جمعه)</option>
+                      <option value="every_publish">بعد از هر بار انتشار پست جدید در کانال</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      آخرین بکاپ ارسال شده:
+                    </label>
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-slate-400 flex items-center justify-between">
+                      <span>{formData.lastBackupAt ? `${formData.lastBackupAt}` : "هنوز ارسال نشده"}</span>
+                      <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Specific Admin Chat IDs for Backups */}
+                <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      شناسه چت یا آیدی ادمین تلگرام (جهت دریافت فایل بکاپ):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="مثلاً 123456789 یا @my_admin_id (در صورت خالی بودن به کانال ارسال می‌شود)"
+                      value={formData.telegramAdminChatId || ""}
+                      onChange={(e) => setFormData({ ...formData, telegramAdminChatId: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      شناسه چت یا آیدی ادمین بله (جهت دریافت بکاپ):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="مثلاً 123456789 یا @my_bale_admin"
+                      value={formData.baleAdminChatId || ""}
+                      onChange={(e) => setFormData({ ...formData, baleAdminChatId: e.target.value })}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Instant Backup & Export/Import Controls */}
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4">
+                <h5 className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                  <Database className="w-4 h-4 text-amber-400" />
+                  <span>عملیات دستی پشتیبان‌گیری و بازیابی:</span>
+                </h5>
+
+                <div className="flex flex-wrap gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleTriggerManualBackup}
+                    disabled={backupSending}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white text-xs font-bold transition-all shadow-lg shadow-amber-950/40 disabled:opacity-50"
+                  >
+                    {backupSending ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4 rotate-180" />
+                    )}
+                    <span>ارسال فوری بکاپ به بات‌های تلگرام و بله</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadBackup}
+                    className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-medium border border-slate-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>دانلود فایل پشتیبان (JSON)</span>
+                  </button>
+
+                  <label className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-medium border border-slate-700 transition-colors cursor-pointer">
+                    <Upload className="w-4 h-4" />
+                    <span>بازیابی از فایل پشتیبان</span>
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {backupResult && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                      backupResult.ok
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+                        : "bg-rose-500/10 border-rose-500/30 text-rose-300"
+                    }`}
+                  >
+                    {backupResult.ok ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                    )}
+                    <span>{backupResult.message}</span>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
+
+          {/* Tab 4: Setup Guide & Linux Script */}
           {activeTab === "guide" && (
             <div className="space-y-5 text-xs sm:text-sm text-slate-300 leading-relaxed">
+              
+              {/* Linux Script Commands Callout */}
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+                <h4 className="font-bold text-amber-400 flex items-center gap-2">
+                  <Terminal className="w-4 h-4" />
+                  <span>اسکریپت لینوکس (Linux Installation, Update & Uninstall Script)</span>
+                </h4>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  یک اسکریپت شل کاملاً انگلیسی به نام <code>install.sh</code> در پوشه اصلی پروژه ایجاد شده که موقع آپدیت و حذف، به طور اتوماتیک نسخه پشتیبان را به بات‌های ادمین ارسال می‌کند:
+                </p>
+                <div className="bg-slate-900 border border-slate-700/60 rounded-xl p-3 font-mono text-xs text-slate-200 space-y-1.5" dir="ltr">
+                  <div className="text-emerald-400"># 1. Interactive Menu:</div>
+                  <div>./install.sh</div>
+                  <div className="text-emerald-400 mt-2"># 2. Automated Install & Systemd Service:</div>
+                  <div>./install.sh --install</div>
+                  <div className="text-emerald-400 mt-2"># 3. Update with Automated Bot Backup Dispatch:</div>
+                  <div>./install.sh --update</div>
+                  <div className="text-emerald-400 mt-2"># 4. Uninstall with Automated Bot Backup Dispatch:</div>
+                  <div>./install.sh --uninstall</div>
+                  <div className="text-emerald-400 mt-2"># 5. Manual Backup Dispatch:</div>
+                  <div>./install.sh --backup</div>
+                </div>
+              </div>
+
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
                 <h4 className="font-bold text-sky-400 flex items-center gap-2">
-                  <span>🔹 مرحله ۱: نحوه ساخت ربات در تلگرام</span>
+                  <span>🔹 نحوه ساخت ربات در تلگرام</span>
                 </h4>
                 <ol className="list-decimal list-inside space-y-1 text-xs text-slate-300 pr-2">
                   <li>در تلگرام به آیدی <b>@BotFather</b> پیام دهید.</li>
@@ -368,7 +676,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
                 <h4 className="font-bold text-emerald-400 flex items-center gap-2">
-                  <span>🔹 مرحله ۲: نحوه ساخت ربات در پیام‌رسان بله (Bale)</span>
+                  <span>🔹 نحوه ساخت ربات در پیام‌رسان بله (Bale)</span>
                 </h4>
                 <ol className="list-decimal list-inside space-y-1 text-xs text-slate-300 pr-2">
                   <li>در اپلیکیشن بله به آیدی <b>@BotFather</b> مراجعه کنید.</li>
@@ -378,9 +686,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </ol>
               </div>
 
-              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3.5 text-xs text-amber-200">
-                💡 <b>نکته مهم:</b> اگر هنوز توکن یا کانال واقعی نساخته‌اید، می‌توانید به راحتی در پنل پست‌ها را مشاهده کرده و ارسال آزمایشی (شبیه‌ساز) را تست کنید.
-              </div>
             </div>
           )}
 

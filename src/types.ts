@@ -11,6 +11,11 @@ export interface BotConfig {
   channelSignature: string; // e.g. 📢 کانال حسابداری تخصصی: @acc_iran | بله: @acc_iran
   autoHashtags: string; // e.g. #آموزش_حسابداری #مالیات #سامانه_مودیان
   simulationMode: boolean;
+  autoBackupEnabled?: boolean;
+  autoBackupInterval?: "daily" | "weekly" | "every_publish";
+  lastBackupAt?: string;
+  telegramAdminChatId?: string; // numeric or @admin
+  baleAdminChatId?: string; // numeric or @admin
 }
 
 export interface LessonItem {

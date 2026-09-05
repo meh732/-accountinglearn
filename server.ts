@@ -208,6 +208,105 @@ async function startServer() {
     }
   });
 
+  // Backup Dispatch to Telegram and Bale Bots
+  app.post("/api/backup-send", async (req, res) => {
+    try {
+      const {
+        data,
+        config = {},
+        caption = "📦 بکاپ خودکار سیستم ربات حسابداری ایران",
+      } = req.body;
+
+      const results: Record<string, any> = {};
+      const backupJson = JSON.stringify(data || { timestamp: new Date().toISOString() }, null, 2);
+      const filename = `accounting_bot_backup_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+
+      // 1. Send backup to Telegram Bot (Admin Chat or Channel)
+      const tgToken = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
+      const tgTarget = config.telegramAdminChatId || config.telegramChannel || process.env.TELEGRAM_CHANNEL_ID;
+
+      if (!tgToken || !tgTarget) {
+        results.telegram = {
+          ok: true,
+          simulated: true,
+          message: "حالت شبیه‌سازی: توکن یا چت آیدی ادمین تلگرام تنظیم نشده است.",
+          filename,
+        };
+      } else {
+        try {
+          const form = new FormData();
+          form.append("chat_id", tgTarget);
+          form.append("caption", `${caption}\n📅 تاریخ: ${new Date().toLocaleDateString("fa-IR")} ${new Date().toLocaleTimeString("fa-IR")}\n📁 نام فایل: ${filename}`);
+          const blob = new Blob([backupJson], { type: "application/json" });
+          form.append("document", blob, filename);
+
+          const tgRes = await fetch(`https://api.telegram.org/bot${tgToken}/sendDocument`, {
+            method: "POST",
+            body: form,
+          });
+          const tgData = await tgRes.json();
+          if (tgData.ok) {
+            results.telegram = { ok: true, messageId: tgData.result?.message_id, target: tgTarget };
+          } else {
+            // fallback to sendMessage if sendDocument has permissions constraint
+            const textSummary = `📦 <b>پشتیبان‌گیری سیستم حسابداری ایران</b>\n\n📅 تاریخ: ${new Date().toLocaleDateString("fa-IR")}\n${caption}\n\n<i>حجم داده‌ها: ${(backupJson.length / 1024).toFixed(2)} KB</i>`;
+            const msgRes = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: tgTarget,
+                text: textSummary,
+                parse_mode: "HTML",
+              }),
+            });
+            const msgData = await msgRes.json();
+            results.telegram = { ok: msgData.ok, details: msgData };
+          }
+        } catch (err: any) {
+          results.telegram = { ok: false, error: err.message };
+        }
+      }
+
+      // 2. Send backup to Bale Bot
+      const baleToken = config.baleToken || process.env.BALE_BOT_TOKEN;
+      const baleTarget = config.baleAdminChatId || config.baleChannel || process.env.BALE_CHANNEL_ID;
+
+      if (!baleToken || !baleTarget) {
+        results.bale = {
+          ok: true,
+          simulated: true,
+          message: "حالت شبیه‌سازی: توکن یا چت آیدی ادمین بله تنظیم نشده است.",
+          filename,
+        };
+      } else {
+        try {
+          // Send formatted backup notification & payload
+          const baleText = `📦 پشتیبان‌گیری خودکار سیستم حسابداری ایران\n📅 تاریخ: ${new Date().toLocaleDateString("fa-IR")} ${new Date().toLocaleTimeString("fa-IR")}\n${caption}\nحجم: ${(backupJson.length / 1024).toFixed(2)} KB`;
+          const baleRes = await fetch(`https://tapi.bale.ai/bot${baleToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: baleTarget,
+              text: baleText,
+            }),
+          });
+          const baleData = await baleRes.json();
+          results.bale = { ok: baleData.ok, messageId: baleData.result?.message_id };
+        } catch (err: any) {
+          results.bale = { ok: false, error: err.message };
+        }
+      }
+
+      return res.json({
+        ok: true,
+        filename,
+        results,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message || "خطا در ارسال فایل پشتیبان" });
+    }
+  });
+
   // AI Content Generator for Accounting
   app.post("/api/generate-accounting-content", async (req, res) => {
     try {
