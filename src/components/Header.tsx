@@ -1,5 +1,5 @@
 import React from "react";
-import { Send, Settings, ShieldCheck, Sparkles, Radio, HelpCircle } from "lucide-react";
+import { Send, Settings, ShieldCheck, Sparkles, Radio, HelpCircle, Globe } from "lucide-react";
 import { BotConfig } from "../types";
 
 interface HeaderProps {
@@ -84,6 +84,16 @@ export const Header: React.FC<HeaderProps> = ({
               title="مشاهده مستقیم مینی‌اپ اختصاصی اعضای کانال"
             >
               <span>📱 مینی‌اپ اعضا</span>
+            </button>
+
+            {/* Deployment, Custom Port & SSL Quick Access */}
+            <button
+              onClick={onOpenSettings}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold border border-indigo-500/40 transition-all shadow-sm"
+              title="تنظیم پورت دلخواه سرور، اتصال به دامنه و اخذ گواهینامه SSL رایگان"
+            >
+              <Globe className="w-3.5 h-3.5 text-indigo-400" />
+              <span>🌐 پورت و SSL</span>
             </button>
 
             {/* Help Button */}

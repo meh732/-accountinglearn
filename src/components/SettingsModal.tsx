@@ -16,8 +16,10 @@ import {
   Clock,
   Database,
   Terminal,
+  Globe,
 } from "lucide-react";
 import { BotConfig } from "../types";
+import { DeploymentSettingsTab } from "./DeploymentSettingsTab";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -43,10 +45,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     autoBackupInterval: "daily",
     telegramAdminChatId: "",
     baleAdminChatId: "",
+    deploymentPort: 3000,
+    deploymentDomain: "",
+    deploymentEnableSsl: false,
+    deploymentSslEmail: "",
+    deploymentRedirectHttps: true,
     ...config,
   });
 
-  const [activeTab, setActiveTab] = useState<"credentials" | "branding" | "backup" | "guide">("credentials");
+  const [activeTab, setActiveTab] = useState<"credentials" | "branding" | "backup" | "deployment" | "guide">("credentials");
 
   // Connection test states
   const [tgTestState, setTgTestState] = useState<{ loading: boolean; result?: any; error?: string }>({
@@ -256,6 +263,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <Archive className="w-3.5 h-3.5 text-amber-400" />
             <span>بکاپ اتوماتیک به بات‌ها</span>
+          </button>
+          <button
+            onClick={() => setActiveTab("deployment")}
+            className={`px-3.5 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === "deployment"
+                ? "border-sky-500 text-sky-400"
+                : "border-transparent text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5 text-sky-400" />
+            <span>پورت اختصاصی، دامنه و SSL</span>
           </button>
           <button
             onClick={() => setActiveTab("guide")}
@@ -804,7 +822,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           )}
 
-          {/* Tab 4: Setup Guide & Linux Script */}
+          {/* Tab 4: Hosting, Custom Port, Domain & SSL */}
+          {activeTab === "deployment" && (
+            <DeploymentSettingsTab
+              formData={formData}
+              setFormData={setFormData}
+            />
+          )}
+
+          {/* Tab 5: Setup Guide & Linux Script */}
           {activeTab === "guide" && (
             <div className="space-y-5 text-xs sm:text-sm text-slate-300 leading-relaxed">
               

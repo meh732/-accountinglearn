@@ -130,6 +130,36 @@ check_dependencies() {
 }
 
 # ==============================================================================
+# Firewall Configuration
+# ==============================================================================
+configure_firewall() {
+    local target_port="$1"
+    if [ -z "${target_port}" ]; then
+        return 0
+    fi
+
+    log_info "Configuring firewall to allow inbound TCP on Port ${target_port}..."
+    
+    # 1. UFW (Ubuntu/Debian)
+    if command -v ufw >/dev/null 2>&1; then
+        run_as_root ufw allow "${target_port}/tcp" >/dev/null 2>&1 || true
+        log_success "UFW firewall rule added for Port ${target_port}/tcp."
+    fi
+
+    # 2. Firewalld (CentOS/RHEL/Alma/Rocky)
+    if command -v firewall-cmd >/dev/null 2>&1; then
+        run_as_root firewall-cmd --zone=public --add-port="${target_port}/tcp" --permanent >/dev/null 2>&1 || true
+        run_as_root firewall-cmd --reload >/dev/null 2>&1 || true
+        log_success "Firewalld rule added for Port ${target_port}/tcp."
+    fi
+
+    # 3. Iptables fallback
+    if command -v iptables >/dev/null 2>&1; then
+        run_as_root iptables -I INPUT -p tcp --dport "${target_port}" -j ACCEPT >/dev/null 2>&1 || true
+    fi
+}
+
+# ==============================================================================
 # Backup Generation & Bot Dispatch
 # ==============================================================================
 create_and_send_backup() {
@@ -300,6 +330,9 @@ WantedBy=multi-user.target
     run_as_root systemctl enable "${SERVICE_NAME}"
     run_as_root systemctl restart "${SERVICE_NAME}"
 
+    # Automatically open the chosen port in firewall
+    configure_firewall "${PORT}"
+
     # Optional Domain & SSL Configuration
     if [ -n "${CLI_DOMAIN}" ] || [ "${CLI_SSL}" = "1" ]; then
         setup_domain_and_ssl "${PORT}" "${CLI_DOMAIN}" "${CLI_SSL}" "${CLI_EMAIL}"
@@ -328,11 +361,6 @@ WantedBy=multi-user.target
     echo "=================================================================="
     echo -e "  Simply type ${YELLOW}accountinglearn${GREEN} anywhere in your terminal to   "
     echo -e "  manage your service, change port, or configure domain & SSL!   "
-    echo "=================================================================="
-    echo -e "${NC}"
-}
-    echo -e "  Simply type ${YELLOW}accountinglearn${GREEN} anywhere in your terminal to   "
-    echo -e "  open the interactive management menu!                          "
     echo "=================================================================="
     echo -e "${NC}"
 }
@@ -525,6 +553,9 @@ WantedBy=multi-user.target
     run_as_root systemctl daemon-reload
     run_as_root systemctl restart "${SERVICE_NAME}"
 
+    # Automatically open the new port in firewall
+    configure_firewall "${new_port}"
+
     local server_ip
     server_ip=$(curl -s -4 icanhazip.com || curl -s -4 ifconfig.me || echo "SERVER_IP")
 
@@ -532,6 +563,232 @@ WantedBy=multi-user.target
     echo -e " Web Panel URL: ${CYAN}http://${server_ip}:${new_port}${NC}"
     echo -e " Local URL:     ${CYAN}http://localhost:${new_port}${NC}"
     echo ""
+    read -p "Press Enter to return to menu..." -r
+}
+
+# ==============================================================================
+# Troubleshooting & Diagnostic Auto-Fixer
+# ==============================================================================
+diagnose_and_fix() {
+    print_banner
+    check_root
+    echo -e "${CYAN}${BOLD}=== 🔍 Diagnostic & Connection Auto-Fix Tool ===${NC}"
+    echo ""
+
+    local current_port="3000"
+    if [ -f "${SERVICE_FILE}" ]; then
+        current_port=$(grep "\-\-port" "${SERVICE_FILE}" | awk -F'--port ' '{print $2}' | tr -d ' ' || echo "3000")
+        if [ -z "$current_port" ]; then
+            current_port=$(grep "CUSTOM_PORT=" "${SERVICE_FILE}" | cut -d'=' -f2 || echo "3000")
+        fi
+    fi
+    current_port="${current_port:-3000}"
+
+    echo -e "1. Checking Systemd Service (${SERVICE_NAME})..."
+    if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+        echo -e "   Status: ${GREEN}● RUNNING${NC}"
+    else
+        echo -e "   Status: ${RED}○ STOPPED or FAILED${NC}"
+        echo -e "   Attempting to start service..."
+        run_as_root systemctl restart "${SERVICE_NAME}"
+        sleep 2
+        if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+            echo -e "   ${GREEN}Service restarted successfully.${NC}"
+        else
+            echo -e "   ${RED}Service failed to start. Recent error logs:${NC}"
+            run_as_root journalctl -u "${SERVICE_NAME}" -n 20 --no-pager
+        fi
+    fi
+    echo ""
+
+    echo -e "2. Checking Listening Ports on Server (Target: ${current_port})..."
+    local port_active="0"
+    if command -v ss >/dev/null 2>&1; then
+        if ss -tulpn | grep -q ":${current_port} "; then
+            port_active="1"
+            echo -e "   ${GREEN}Port ${current_port} is actively listening on TCP.${NC}"
+        fi
+    elif command -v netstat >/dev/null 2>&1; then
+        if netstat -tlpn | grep -q ":${current_port} "; then
+            port_active="1"
+            echo -e "   ${GREEN}Port ${current_port} is actively listening on TCP.${NC}"
+        fi
+    fi
+
+    if [ "${port_active}" = "0" ]; then
+        echo -e "   ${YELLOW}No process detected on Port ${current_port}.${NC}"
+        echo -e "   Re-compiling and restarting..."
+        cd "${APP_DIR}" && npm run build && run_as_root systemctl restart "${SERVICE_NAME}"
+    fi
+    echo ""
+
+    echo -e "3. Unblocking Firewalls on OS (UFW, Firewalld, iptables)..."
+    configure_firewall "${current_port}"
+    echo ""
+
+    echo -e "4. Testing Local HTTP Request to http://127.0.0.1:${current_port}/api/health..."
+    local local_http_code
+    local_http_code=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${current_port}/api/health" || echo "000")
+    if [ "${local_http_code}" = "200" ]; then
+        echo -e "   ${GREEN}Local connection test SUCCESS (HTTP 200 OK)!${NC}"
+    else
+        echo -e "   ${YELLOW}Local connection returned code: ${local_http_code}${NC}"
+    fi
+    echo ""
+
+    local server_ip
+    server_ip=$(curl -s -4 icanhazip.com || curl -s -4 ifconfig.me || echo "45.144.48.211")
+
+    echo "=================================================================="
+    echo -e "  🌐 Web Panel Address: ${CYAN}http://${server_ip}:${current_port}${NC}"
+    echo "=================================================================="
+    echo -e "${YELLOW}🚨 IMPORTANT NOTE IF BROWSER SAYS 'ERR_CONNECTION_REFUSED':${NC}"
+    echo -e "If the local test succeeded but you cannot open http://${server_ip}:${current_port}"
+    echo -e "from your browser, your VPS Cloud Provider (e.g. Hetzner, Arvan, AWS,"
+    echo -e "DigitalOcean) is blocking Port ${current_port} in their Cloud Firewall panel."
+    echo -e "👉 Fix: Go to your VPS control panel -> Firewall / Security Groups,"
+    echo -e "   and add an INBOUND rule allowing TCP traffic on Port ${current_port}."
+    echo "=================================================================="
+    echo ""
+    read -p "Press Enter to return to menu..." -r
+}
+
+# ==============================================================================
+# Domain & SSL (Let's Encrypt / Certbot) Configuration
+# ==============================================================================
+setup_domain_and_ssl() {
+    local target_port="${1:-3000}"
+    local target_domain="$2"
+    local enable_ssl="$3"
+    local ssl_email="$4"
+
+    echo ""
+    echo -e "${CYAN}${BOLD}=== 🌐 Domain & Let's Encrypt SSL Configuration ===${NC}"
+
+    if [ -z "${target_domain}" ]; then
+        read -p "Enter your domain name (e.g. panel.example.com or acc.myweb.ir): " target_domain
+    fi
+
+    if [ -z "${target_domain}" ]; then
+        log_warning "No domain entered. Skipping domain configuration."
+        return 0
+    fi
+
+    target_domain=$(echo "${target_domain}" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+
+    if [ -z "${enable_ssl}" ]; then
+        read -p "Acquire free Let's Encrypt SSL certificate for ${target_domain}? [y/N]: " ssl_choice
+        if [[ "$ssl_choice" =~ ^[Yy]$ ]]; then
+            enable_ssl="1"
+        else
+            enable_ssl="0"
+        fi
+    fi
+
+    if [ "${enable_ssl}" = "1" ] && [ -z "${ssl_email}" ]; then
+        read -p "Enter email for SSL expiration notices (optional, press Enter to skip): " ssl_email
+    fi
+
+    log_info "Installing Nginx web server..."
+    if command -v apt-get >/dev/null 2>&1; then
+        run_as_root apt-get update -y
+        run_as_root apt-get install -y nginx
+    elif command -v yum >/dev/null 2>&1; then
+        run_as_root yum install -y nginx
+    elif command -v dnf >/dev/null 2>&1; then
+        run_as_root dnf install -y nginx
+    fi
+
+    local nginx_conf="/etc/nginx/sites-available/${SERVICE_NAME}"
+    local nginx_link="/etc/nginx/sites-enabled/${SERVICE_NAME}"
+    [ -d "/etc/nginx/sites-available" ] || run_as_root mkdir -p /etc/nginx/sites-available
+    [ -d "/etc/nginx/sites-enabled" ] || run_as_root mkdir -p /etc/nginx/sites-enabled
+
+    log_info "Creating Nginx reverse proxy configuration for ${target_domain} -> Port ${target_port}..."
+    local nginx_content="server {
+    listen 80;
+    listen [::]:80;
+    server_name ${target_domain};
+
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:${target_port};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection \"upgrade\";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+}
+"
+    echo "${nginx_content}" | run_as_root tee "${nginx_conf}" >/dev/null
+    run_as_root ln -sf "${nginx_conf}" "${nginx_link}"
+
+    # Remove default nginx site if conflicts
+    run_as_root rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
+    log_info "Testing Nginx syntax..."
+    if run_as_root nginx -t; then
+        run_as_root systemctl enable nginx 2>/dev/null || true
+        run_as_root systemctl restart nginx
+        log_success "Nginx reverse proxy configured and running!"
+    else
+        log_error "Nginx configuration test failed. Please check /etc/nginx configuration."
+        return 1
+    fi
+
+    # Issue Let's Encrypt SSL
+    if [ "${enable_ssl}" = "1" ]; then
+        log_info "Installing Certbot for Let's Encrypt SSL..."
+        if command -v apt-get >/dev/null 2>&1; then
+            run_as_root apt-get install -y certbot python3-certbot-nginx
+        elif command -v yum >/dev/null 2>&1; then
+            run_as_root yum install -y certbot python3-certbot-nginx
+        fi
+
+        log_info "Requesting SSL certificate from Let's Encrypt for ${target_domain}..."
+        local certbot_cmd="certbot --nginx -d ${target_domain} --non-interactive --agree-tos --redirect"
+        if [ -n "${ssl_email}" ]; then
+            certbot_cmd="${certbot_cmd} -m ${ssl_email}"
+        else
+            certbot_cmd="${certbot_cmd} --register-unsafely-without-email"
+        fi
+
+        if run_as_root ${certbot_cmd}; then
+            log_success "SSL certificate successfully acquired and applied to Nginx!"
+            echo -e " ${GREEN}${BOLD}Secure URL: https://${target_domain}${NC}"
+        else
+            log_warning "Certbot was unable to verify domain ownership automatically."
+            log_warning "Ensure your domain's DNS A-Record points to this server's IP address, then try again."
+        fi
+    else
+        echo -e " ${GREEN}${BOLD}HTTP URL: http://${target_domain}${NC}"
+    fi
+
+    # Firewall
+    if command -v ufw >/dev/null 2>&1; then
+        run_as_root ufw allow 80/tcp >/dev/null 2>&1 || true
+        run_as_root ufw allow 443/tcp >/dev/null 2>&1 || true
+    fi
+
+    echo ""
+    read -p "Press Enter to continue..." -r
+}
+
+renew_ssl() {
+    log_info "Testing and renewing Let's Encrypt SSL certificates..."
+    if command -v certbot >/dev/null 2>&1; then
+        run_as_root certbot renew
+        run_as_root systemctl reload nginx 2>/dev/null || true
+        log_success "SSL renewal process completed."
+    else
+        log_error "Certbot is not installed. Please configure Domain & SSL first."
+    fi
     read -p "Press Enter to return to menu..." -r
 }
 
@@ -558,16 +815,19 @@ show_menu() {
     echo -e " ${GREEN}5)${NC} Stop Service"
     echo -e " ${GREEN}6)${NC} Restart Service"
     echo -e " ${GREEN}7)${NC} Change Web Panel Port (تغییر پورت پنل)"
-    echo -e " ${GREEN}8)${NC} Check Status & Port"
-    echo -e " ${GREEN}9)${NC} View Realtime Service Logs"
+    echo -e " ${GREEN}8)${NC} Configure Domain & Optional SSL (تنظیم دامنه و گرفتن SSL رایگان)"
+    echo -e " ${GREEN}9)${NC} Renew / Test SSL Certificate (تمدید و بررسی SSL)"
+    echo -e " ${GREEN}10)${NC} 🔍 Diagnose & Auto-Fix Connection / Firewall (عیب‌یابی و رفع خودکار مشکل اتصال)"
+    echo -e " ${GREEN}11)${NC} Check Status & Port"
+    echo -e " ${GREEN}12)${NC} View Realtime Service Logs"
     echo "----------------------------------------------------------------"
-    echo -e " ${GREEN}10)${NC} Create Instant Backup & Send to Bots Now"
-    echo -e " ${GREEN}11)${NC} Enable Auto-Start on Boot"
-    echo -e " ${GREEN}12)${NC} Disable Auto-Start on Boot"
+    echo -e " ${GREEN}13)${NC} Create Instant Backup & Send to Bots Now"
+    echo -e " ${GREEN}14)${NC} Enable Auto-Start on Boot"
+    echo -e " ${GREEN}15)${NC} Disable Auto-Start on Boot"
     echo "----------------------------------------------------------------"
     echo -e " ${RED}0)${NC} Exit"
     echo ""
-    read -p "Please select an option [0-12]: " choice
+    read -p "Please select an option [0-15]: " choice
     case "$choice" in
         1) do_install ;;
         2) do_update ;;
@@ -576,48 +836,126 @@ show_menu() {
         5) stop_service ;;
         6) restart_service ;;
         7) change_port ;;
-        8) do_status ;;
-        9) view_logs ;;
-        10) create_and_send_backup "Manual Menu Trigger" ;;
-        11) enable_service ;;
-        12) disable_service ;;
+        8) setup_domain_and_ssl ;;
+        9) renew_ssl ;;
+        10) diagnose_and_fix ;;
+        11) do_status ;;
+        12) view_logs ;;
+        13) create_and_send_backup "Manual Menu Trigger" ;;
+        14) enable_service ;;
+        15) disable_service ;;
         0) exit 0 ;;
         *) log_error "Invalid selection"; sleep 1; show_menu ;;
     esac
 }
 
 # ==============================================================================
-# Entry Point & One-Liner Handling
+# Entry Point & Advanced Argument Parsing
 # ==============================================================================
-# If executed with arguments:
-case "$1" in
-    --install|-i)
+CLI_ACTION=""
+CLI_PORT=""
+CLI_DOMAIN=""
+CLI_SSL="0"
+CLI_EMAIL=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --install|-i)
+            CLI_ACTION="install"
+            shift
+            ;;
+        --update|-u)
+            CLI_ACTION="update"
+            shift
+            ;;
+        --uninstall)
+            CLI_ACTION="uninstall"
+            shift
+            ;;
+        --backup|-b)
+            CLI_ACTION="backup"
+            shift
+            ;;
+        --status|-s)
+            CLI_ACTION="status"
+            shift
+            ;;
+        --diagnose|--fix|-t)
+            CLI_ACTION="diagnose"
+            shift
+            ;;
+        --restart|-r)
+            CLI_ACTION="restart"
+            shift
+            ;;
+        --port|-p)
+            if [[ -n "$2" && ! "$2" =~ ^-- ]]; then
+                CLI_PORT="$2"
+                shift 2
+            else
+                CLI_ACTION="port"
+                shift
+            fi
+            ;;
+        --domain|-d)
+            CLI_DOMAIN="$2"
+            shift 2
+            ;;
+        --ssl)
+            CLI_SSL="1"
+            shift
+            ;;
+        --email|-m)
+            CLI_EMAIL="$2"
+            shift 2
+            ;;
+        --logs|-l)
+            CLI_ACTION="logs"
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+case "${CLI_ACTION}" in
+    install)
         do_install
         ;;
-    --update|-u)
+    update)
         do_update
         ;;
-    --uninstall)
+    uninstall)
         do_uninstall
         ;;
-    --backup|-b)
+    backup)
         create_and_send_backup "CLI Flag"
         ;;
-    --status|-s)
+    status)
         do_status
         ;;
-    --restart|-r)
+    diagnose)
+        diagnose_and_fix
+        ;;
+    restart)
         restart_service
         ;;
-    --port|-p)
-        change_port
+    port)
+        if [ -n "${CLI_PORT}" ]; then
+            new_port="${CLI_PORT}"
+            change_port
+        else
+            change_port
+        fi
         ;;
-    --logs|-l)
+    logs)
         view_logs
         ;;
     *)
-        # If piped from curl or run directly, show menu (or install if not installed)
-        if ! command -v "${SERVICE_NAME}" >/dev/null 2>&1 && [ ! -f "${SERVICE_FILE}" ] && [ ! -f "$(pwd)/package.json" ]; then
+        if [ -n "${CLI_PORT}" ] || [ -n "${CLI_DOMAIN}" ] || [ "${CLI_SSL}" = "1" ]; then
+            do_install
+        elif ! command -v "${SERVICE_NAME}" >/dev/null 2>&1 && [ ! -f "${SERVICE_FILE}" ] && [ ! -f "$(pwd)/package.json" ]; then
             do_install
         else
             show_menu

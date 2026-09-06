@@ -40,6 +40,10 @@ async function startServer() {
       const parsed = parseInt(process.env.CUSTOM_PORT, 10);
       if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
     }
+    if (process.env.NODE_ENV === "production" && process.env.PORT) {
+      const parsed = parseInt(process.env.PORT, 10);
+      if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
+    }
     return 3000;
   }
   const PORT = getServerPort();
@@ -48,13 +52,24 @@ async function startServer() {
 
   // --- API Routes ---
 
-  // Health check
+  // Health check & deployment status
   app.get("/api/health", (_req, res) => {
     res.json({
       status: "ok",
+      port: PORT,
       hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
       hasTelegramToken: Boolean(process.env.TELEGRAM_BOT_TOKEN),
       hasBaleToken: Boolean(process.env.BALE_BOT_TOKEN),
+    });
+  });
+
+  app.get("/api/deployment/status", (_req, res) => {
+    res.json({
+      port: PORT,
+      nodeVersion: process.version,
+      uptimeSeconds: Math.floor(process.uptime()),
+      environment: process.env.NODE_ENV || "development",
+      platform: process.platform,
     });
   });
 
