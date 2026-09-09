@@ -52,7 +52,7 @@ export default function App() {
       channelSignature: "📢 عضویت در کانال حسابداری: @hesabdari_iran_channel | بله: @hesabdari_bale_channel",
       autoHashtags: "#آموزش_حسابداری #مالیات #سامانه_مودیان",
       simulationMode: true,
-      deploymentPort: 8585,
+      deploymentPort: 3000,
     };
   });
 

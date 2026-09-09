@@ -289,19 +289,19 @@ do_install() {
         fi
     fi
 
-    # 1. Custom Port Selection (انتخاب پورت دلخواه برای نصب)
-    local default_port="8585"
+    # 1. Custom Port Selection
+    local default_port="3000"
     if [ -z "${CLI_PORT}" ]; then
         echo ""
         echo -e "${YELLOW}${BOLD}================================================================${NC}"
-        echo -e "${YELLOW}${BOLD}>> تنظیم پورت دلخواه برای پنل مدیریت (Web Panel Custom Port):${NC}"
-        echo -e "${CYAN}شما می‌توانید هر پورت دلخواهی مانند 8585، 80، 8080، 5000 یا 3000 را وارد نمایید.${NC}"
+        echo -e "${YELLOW}${BOLD}>> Web Panel Port Configuration:${NC}"
+        echo -e "${CYAN}You can specify any custom port (e.g. 80, 8080, 5000, 8585, 3000).${NC}"
         echo -e "${YELLOW}================================================================${NC}"
-        prompt_user "شماره پورت دلخواه را وارد کنید [پیش‌فرض: ${default_port}]: " custom_port "${default_port}"
+        prompt_user "Enter web panel port [Default: ${default_port}]: " custom_port "${default_port}"
 
         while ! [[ "${custom_port}" =~ ^[0-9]+$ ]] || [ "${custom_port}" -lt 1 ] || [ "${custom_port}" -gt 65535 ]; do
-            echo -e "${RED}پورت نامعتبر است! شماره پورت باید عددی بین ۱ تا ۶۵۵۳۵ باشد.${NC}"
-            prompt_user "لطفاً مجدداً پورت را وارد کنید: " custom_port "${default_port}"
+            echo -e "${RED}Invalid port! Port number must be between 1 and 65535.${NC}"
+            prompt_user "Please enter port again [Default: ${default_port}]: " custom_port "${default_port}"
         done
         PORT="${custom_port}"
     else
@@ -382,8 +382,8 @@ WantedBy=multi-user.target
         setup_domain_and_ssl "${PORT}" "${CLI_DOMAIN}" "${CLI_SSL}" "${CLI_EMAIL}"
     else
         echo ""
-        echo -e "${YELLOW}>> Domain & SSL Configuration (تنظیم دامنه و گرفتن SSL اختیاری):${NC}"
-        read -p "Do you want to configure a custom domain and optional SSL (Let's Encrypt)? [y/N]: " setup_domain_choice
+        echo -e "${YELLOW}>> Domain & SSL Configuration (Optional):${NC}"
+        prompt_user "Do you want to configure a custom domain and optional SSL (Let's Encrypt)? [y/N]: " setup_domain_choice "N"
         if [[ "$setup_domain_choice" =~ ^[Yy]$ ]]; then
             setup_domain_and_ssl "${PORT}"
         fi
@@ -550,19 +550,19 @@ change_port() {
     check_root
     log_info "Configuring custom port for Accounting Bot Platform..."
 
-    local current_port="8585"
+    local current_port="3000"
     if [ -f "${SERVICE_FILE}" ]; then
-        current_port=$(grep "\-\-port" "${SERVICE_FILE}" | awk -F'--port ' '{print $2}' | tr -d ' ' || echo "8585")
+        current_port=$(grep "\-\-port" "${SERVICE_FILE}" | awk -F'--port ' '{print $2}' | tr -d ' ' || echo "3000")
         if [ -z "$current_port" ]; then
-            current_port=$(grep "CUSTOM_PORT=" "${SERVICE_FILE}" | cut -d'=' -f2 || echo "8585")
+            current_port=$(grep "CUSTOM_PORT=" "${SERVICE_FILE}" | cut -d'=' -f2 || echo "3000")
         fi
     fi
-    current_port="${current_port:-8585}"
+    current_port="${current_port:-3000}"
 
     local new_port="${1:-${CLI_PORT}}"
     if [ -z "${new_port}" ]; then
         echo -e " Current Port: ${CYAN}${current_port}${NC}"
-        prompt_user "Enter new port number (e.g. 8585, 80, 443, 8080, 5000) [Default: ${current_port}]: " new_port "${current_port}"
+        prompt_user "Enter new port number (e.g. 80, 8080, 5000, 8585, 3000) [Default: ${current_port}]: " new_port "${current_port}"
     fi
     new_port="${new_port:-$current_port}"
 
@@ -881,10 +881,10 @@ show_menu() {
     echo -e " ${GREEN}4)${NC} Start Service"
     echo -e " ${GREEN}5)${NC} Stop Service"
     echo -e " ${GREEN}6)${NC} Restart Service"
-    echo -e " ${GREEN}7)${NC} Change Web Panel Port (تغییر پورت پنل)"
-    echo -e " ${GREEN}8)${NC} Configure Domain & Optional SSL (تنظیم دامنه و گرفتن SSL رایگان)"
-    echo -e " ${GREEN}9)${NC} Renew / Test SSL Certificate (تمدید و بررسی SSL)"
-    echo -e " ${GREEN}10)${NC} 🔍 Diagnose & Auto-Fix Connection / Firewall (عیب‌یابی و رفع خودکار مشکل اتصال)"
+    echo -e " ${GREEN}7)${NC} Change Web Panel Port"
+    echo -e " ${GREEN}8)${NC} Configure Domain & Optional SSL (Let's Encrypt)"
+    echo -e " ${GREEN}9)${NC} Renew / Test SSL Certificate"
+    echo -e " ${GREEN}10)${NC} Diagnose & Auto-Fix Connection / Firewall"
     echo -e " ${GREEN}11)${NC} Check Status & Port"
     echo -e " ${GREEN}12)${NC} View Realtime Service Logs"
     echo "----------------------------------------------------------------"
