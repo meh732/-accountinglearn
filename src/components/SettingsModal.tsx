@@ -919,14 +919,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
                 <h4 className="font-bold text-sky-400 flex items-center gap-2">
-                  <span>🔹 نحوه ساخت ربات در تلگرام</span>
+                  <span>🔹 نحوه ساخت و اتصال ربات به کانال تلگرام</span>
                 </h4>
                 <ol className="list-decimal list-inside space-y-1 text-xs text-slate-300 pr-2">
                   <li>در تلگرام به آیدی <b>@BotFather</b> پیام دهید.</li>
                   <li>دستور <code>/newbot</code> را ارسال کرده و نام و نام کاربری ربات را تعیین کنید.</li>
                   <li>توکن دریافت شده (API Token) را کپی کرده و در کادر توکن تلگرام بالا قرار دهید.</li>
-                  <li>وارد کانال تلگرام خود شوید ➡️ به بخش <b>Administrators</b> بروید ➡️ ربات خود را به عنوان مدیر اضافه کنید و دسترسی <b>Post Messages</b> بدهید.</li>
+                  <li>وارد کانال تلگرام خود شوید ➡️ روی نام کانال کلیک کرده و آیکون مداد (Edit) یا Settings را بزنید ➡️ به بخش <b>Administrators (مدیران)</b> بروید ➡️ دکمه <b>Add Admin (افزودن مدیر)</b> را بزنید ➡️ آیدی ربات خود را سرچ کرده و با دسترسی <b>Post Messages (ارسال پیام)</b> ثبت کنید.</li>
                 </ol>
+
+                <div className="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-slate-200 space-y-2">
+                  <div className="font-bold text-amber-400 flex items-center gap-1.5">
+                    <span>⚠️ چرا ربات دکمه Add to Channel ندارد یا کانال فقط گزینه Share Link دارد؟</span>
+                  </div>
+                  <ul className="list-disc list-inside space-y-1 text-slate-300 text-[11px] leading-relaxed pr-1">
+                    <li><b>قانون تلگرام برای کانال‌ها:</b> ربات‌ها هرگز نمی‌توانند به عنوان «عضو عادی» یا از طریق لینک دعوت (Share Link) وارد کانال شوند؛ تنها راه اضافه کردن ربات به کانال، ارتقای مستقیم آن به عنوان <b>مدیر (Administrator)</b> از بخش تنظیمات کانال است.</li>
+                    <li><b>فعال کردن دکمه Add to Group/Channel در پروفایل ربات:</b> اگر می‌خواهید دکمه افزودن مستقیم به ربات شما اضافه شود، در <b>@BotFather</b> دستور <code>/mybots</code> را بفرستید ➡️ ربات خود را انتخاب کنید ➡️ به <b>Bot Settings</b> بروید ➡️ گزینه <b>Allow Groups?</b> را بزنید و روی <b>Turn groups on</b> کلیک کنید.</li>
+                  </ul>
+                </div>
               </div>
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">

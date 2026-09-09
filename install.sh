@@ -56,6 +56,26 @@ prompt_user() {
     eval "${result_var}=\"${input_val}\""
 }
 
+set_env_val() {
+    local key="$1"
+    local val="$2"
+    local env_file="${APP_DIR}/.env"
+    [ -f "${env_file}" ] || touch "${env_file}"
+    if grep -q "^${key}=" "${env_file}"; then
+        sed -i "s|^${key}=.*|${key}=\"${val}\"|" "${env_file}"
+    else
+        echo "${key}=\"${val}\"" >> "${env_file}"
+    fi
+}
+
+get_env_val() {
+    local key="$1"
+    local env_file="${APP_DIR}/.env"
+    if [ -f "${env_file}" ]; then
+        grep -E "^${key}=" "${env_file}" | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true
+    fi
+}
+
 print_banner() {
     clear 2>/dev/null || true
     echo -e "${CYAN}${BOLD}"
@@ -254,6 +274,94 @@ create_and_send_backup() {
 }
 
 # ==============================================================================
+# Main Administrator & Bot Credentials Configuration
+# ==============================================================================
+configure_bot_and_admin() {
+    echo ""
+    echo -e "${YELLOW}${BOLD}================================================================${NC}"
+    echo -e "${YELLOW}${BOLD}>> Step 2: Main Administrator & Bot Credentials Configuration${NC}"
+    echo -e "${CYAN}Configure your Telegram / Bale Bot and your Main Admin Chat ID.${NC}"
+    echo -e "${CYAN}The Main Admin receives automatic database backups, critical${NC}"
+    echo -e "${CYAN}server alerts, and possesses exclusive administrative authority.${NC}"
+    echo -e "${YELLOW}================================================================${NC}"
+
+    local current_tg_token
+    local current_tg_admin
+    local current_tg_channel
+    local current_bale_token
+    local current_bale_admin
+    local current_bale_channel
+
+    current_tg_token=$(get_env_val "TELEGRAM_BOT_TOKEN")
+    current_tg_admin=$(get_env_val "TELEGRAM_ADMIN_CHAT_ID")
+    current_tg_channel=$(get_env_val "TELEGRAM_CHANNEL_ID")
+    current_bale_token=$(get_env_val "BALE_BOT_TOKEN")
+    current_bale_admin=$(get_env_val "BALE_ADMIN_CHAT_ID")
+    current_bale_channel=$(get_env_val "BALE_CHANNEL_ID")
+
+    echo ""
+    echo -e "${BLUE}${BOLD}--- [1/2] Telegram Bot & Main Administrator ---${NC}"
+    prompt_user "Enter Telegram Bot Token (from @BotFather) [Current: ${current_tg_token:-None}]: " new_tg_token "${current_tg_token}"
+    if [ -n "${new_tg_token}" ]; then
+        set_env_val "TELEGRAM_BOT_TOKEN" "${new_tg_token}"
+        
+        echo -e "${CYAN}ℹ️  Tip: You can obtain your numeric Admin ID via Telegram bots @userinfobot or @rawdatabot${NC}"
+        prompt_user "Enter Main Admin Telegram Numeric ID (e.g. 123456789) [Current: ${current_tg_admin:-None}]: " new_tg_admin "${current_tg_admin}"
+        if [ -n "${new_tg_admin}" ]; then
+            set_env_val "TELEGRAM_ADMIN_CHAT_ID" "${new_tg_admin}"
+        fi
+
+        prompt_user "Enter Telegram Channel ID or Username (e.g. @hesabdari_channel) [Current: ${current_tg_channel:-None}]: " new_tg_channel "${current_tg_channel}"
+        if [ -n "${new_tg_channel}" ]; then
+            set_env_val "TELEGRAM_CHANNEL_ID" "${new_tg_channel}"
+        fi
+
+        # Immediate verification
+        log_info "Verifying Telegram Bot Token with Telegram API..."
+        local tg_me
+        tg_me=$(curl -s "https://api.telegram.org/bot${new_tg_token}/getMe" || true)
+        if echo "${tg_me}" | grep -q '"ok":true'; then
+            local bot_user
+            bot_user=$(echo "${tg_me}" | grep -o '"username":"[^"]*' | head -n1 | cut -d'"' -f4)
+            log_success "Telegram Bot verified online: @${bot_user}"
+
+            if [ -n "${new_tg_admin}" ]; then
+                log_info "Sending registration test message to Admin (${new_tg_admin})..."
+                local ping_msg="👑 *Accounting Bot Platform — Main Admin Registered*%0A%0AHello! You are now configured as the *Main Administrator* of this accounting bot system.%0A📅 Server Date: $(date +"%Y-%m-%d %H:%M:%S")%0A⚙️ System Port: ${PORT:-3000}%0A%0AAll automated database backups and system notifications will be delivered here."
+                curl -s "https://api.telegram.org/bot${new_tg_token}/sendMessage?chat_id=${new_tg_admin}&text=${ping_msg}&parse_mode=Markdown" >/dev/null 2>&1 || true
+                log_success "Registration ping delivered to Admin on Telegram!"
+            fi
+        else
+            log_warning "Could not reach Telegram API (check token validity or server network)."
+        fi
+    else
+        log_info "Telegram Bot configuration skipped."
+    fi
+
+    echo ""
+    echo -e "${BLUE}${BOLD}--- [2/2] Bale Messenger Bot & Admin (Optional) ---${NC}"
+    prompt_user "Enter Bale Bot Token (optional, press Enter to skip) [Current: ${current_bale_token:-None}]: " new_bale_token "${current_bale_token}"
+    if [ -n "${new_bale_token}" ]; then
+        set_env_val "BALE_BOT_TOKEN" "${new_bale_token}"
+        prompt_user "Enter Bale Admin Chat ID (optional) [Current: ${current_bale_admin:-None}]: " new_bale_admin "${current_bale_admin}"
+        if [ -n "${new_bale_admin}" ]; then
+            set_env_val "BALE_ADMIN_CHAT_ID" "${new_bale_admin}"
+        fi
+        prompt_user "Enter Bale Channel ID (e.g. @hesabdari_bale) [Current: ${current_bale_channel:-None}]: " new_bale_channel "${current_bale_channel}"
+        if [ -n "${new_bale_channel}" ]; then
+            set_env_val "BALE_CHANNEL_ID" "${new_bale_channel}"
+        fi
+    fi
+
+    log_success "Administrator and Bot credentials saved to .env."
+    if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+        log_info "Restarting ${SERVICE_NAME} to apply updated credentials..."
+        systemctl restart "${SERVICE_NAME}" || true
+        log_success "Service restarted successfully."
+    fi
+}
+
+# ==============================================================================
 # Installation
 # ==============================================================================
 do_install() {
@@ -296,7 +404,7 @@ do_install() {
     if [ -z "${CLI_PORT}" ]; then
         echo ""
         echo -e "${YELLOW}${BOLD}================================================================${NC}"
-        echo -e "${YELLOW}${BOLD}>> Web Panel Port Configuration:${NC}"
+        echo -e "${YELLOW}${BOLD}>> Step 1: Web Panel Port Configuration${NC}"
         echo -e "${CYAN}You can specify any custom port (e.g. 80, 8080, 5000, 8585, 3000).${NC}"
         echo -e "${YELLOW}================================================================${NC}"
         prompt_user "Enter web panel port [Default: ${default_port}]: " custom_port "${default_port}"
@@ -328,6 +436,16 @@ do_install() {
         else
             echo "CUSTOM_PORT=${PORT}" >> "${APP_DIR}/.env"
         fi
+    fi
+
+    # 2. Main Administrator & Bot Configuration
+    if [ -n "${CLI_ADMIN_ID}" ] || [ -n "${CLI_BOT_TOKEN}" ]; then
+        [ -n "${CLI_BOT_TOKEN}" ] && set_env_val "TELEGRAM_BOT_TOKEN" "${CLI_BOT_TOKEN}"
+        [ -n "${CLI_ADMIN_ID}" ] && set_env_val "TELEGRAM_ADMIN_CHAT_ID" "${CLI_ADMIN_ID}"
+        [ -n "${CLI_CHANNEL}" ] && set_env_val "TELEGRAM_CHANNEL_ID" "${CLI_CHANNEL}"
+        log_success "Admin & Bot credentials configured via CLI flags."
+    else
+        configure_bot_and_admin
     fi
 
     # Install npm dependencies
@@ -533,6 +651,46 @@ disable_service() {
 }
 
 do_status() {
+    print_banner
+    local current_port="3000"
+    if [ -f "${SERVICE_FILE}" ]; then
+        current_port=$(grep "\-\-port" "${SERVICE_FILE}" | awk -F'--port ' '{print $2}' | tr -d ' ' || echo "3000")
+        if [ -z "$current_port" ]; then
+            current_port=$(grep "CUSTOM_PORT=" "${SERVICE_FILE}" | cut -d'=' -f2 || echo "3000")
+        fi
+    fi
+    current_port="${current_port:-3000}"
+
+    local server_ip
+    server_ip=$(curl -s -4 icanhazip.com || curl -s -4 ifconfig.me || echo "SERVER_IP")
+    local tg_admin
+    local tg_token
+    local tg_channel
+    local bale_admin
+    local bale_token
+
+    tg_admin=$(get_env_val "TELEGRAM_ADMIN_CHAT_ID")
+    tg_token=$(get_env_val "TELEGRAM_BOT_TOKEN")
+    tg_channel=$(get_env_val "TELEGRAM_CHANNEL_ID")
+    bale_admin=$(get_env_val "BALE_ADMIN_CHAT_ID")
+    bale_token=$(get_env_val "BALE_BOT_TOKEN")
+
+    echo -e "${CYAN}${BOLD}=== 📊 Platform & Administrator Status ===${NC}"
+    echo -e " 🌐 Web Panel URL:          ${CYAN}http://${server_ip}:${current_port}${NC}"
+    echo -e " 💻 Local Address:          ${CYAN}http://localhost:${current_port}${NC}"
+    echo -e " 👑 Main Telegram Admin ID: ${YELLOW}${tg_admin:-Not Configured}${NC}"
+    if [ -n "${tg_token}" ]; then
+        echo -e " 🤖 Telegram Bot Token:     ${GREEN}Configured (${tg_token:0:8}...)${NC}"
+    else
+        echo -e " 🤖 Telegram Bot Token:     ${RED}Not Configured${NC}"
+    fi
+    if [ -n "${tg_channel}" ]; then
+        echo -e " 📢 Telegram Channel:       ${CYAN}${tg_channel}${NC}"
+    fi
+    if [ -n "${bale_admin}" ]; then
+        echo -e " 💬 Bale Admin Chat ID:     ${YELLOW}${bale_admin}${NC}"
+    fi
+    echo "------------------------------------------------------------------"
     if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
         echo -e "${GREEN}${BOLD}● ${SERVICE_NAME} is RUNNING${NC}"
         run_as_root systemctl status "${SERVICE_NAME}" --no-pager -l
@@ -540,6 +698,8 @@ do_status() {
         echo -e "${RED}${BOLD}○ ${SERVICE_NAME} is NOT RUNNING${NC}"
         run_as_root systemctl status "${SERVICE_NAME}" --no-pager -l 2>/dev/null || true
     fi
+    echo ""
+    read -p "Press Enter to return to menu..." -r
 }
 
 view_logs() {
@@ -873,8 +1033,28 @@ show_menu() {
         status_line="${RED}○ Stopped${NC}"
     fi
 
-    echo -e " Service Status: ${status_line}"
-    echo -e " Application Directory: ${CYAN}${APP_DIR}${NC}"
+    local current_port="3000"
+    if [ -f "${SERVICE_FILE}" ]; then
+        current_port=$(grep "\-\-port" "${SERVICE_FILE}" | awk -F'--port ' '{print $2}' | tr -d ' ' || echo "3000")
+        if [ -z "$current_port" ]; then
+            current_port=$(grep "CUSTOM_PORT=" "${SERVICE_FILE}" | cut -d'=' -f2 || echo "3000")
+        fi
+    fi
+    current_port="${current_port:-3000}"
+
+    local current_tg_admin
+    current_tg_admin=$(get_env_val "TELEGRAM_ADMIN_CHAT_ID")
+    local admin_line
+    if [ -n "${current_tg_admin}" ]; then
+        admin_line="${GREEN}${current_tg_admin}${NC}"
+    else
+        admin_line="${YELLOW}Not configured (Choose 8 to set)${NC}"
+    fi
+
+    echo -e " Service Status:         ${status_line}"
+    echo -e " Web Panel Port:         ${CYAN}${current_port}${NC}"
+    echo -e " Main Telegram Admin ID: ${admin_line}"
+    echo -e " Application Directory:  ${CYAN}${APP_DIR}${NC}"
     echo "----------------------------------------------------------------"
     echo -e " ${GREEN}1)${NC} Install Platform & Systemd Service"
     echo -e " ${GREEN}2)${NC} Update Platform (${YELLOW}Auto-Backup to Telegram/Bale Bots${NC})"
@@ -884,19 +1064,20 @@ show_menu() {
     echo -e " ${GREEN}5)${NC} Stop Service"
     echo -e " ${GREEN}6)${NC} Restart Service"
     echo -e " ${GREEN}7)${NC} Change Web Panel Port"
-    echo -e " ${GREEN}8)${NC} Configure Domain & Optional SSL (Let's Encrypt)"
-    echo -e " ${GREEN}9)${NC} Renew / Test SSL Certificate"
-    echo -e " ${GREEN}10)${NC} Diagnose & Auto-Fix Connection / Firewall"
-    echo -e " ${GREEN}11)${NC} Check Status & Port"
-    echo -e " ${GREEN}12)${NC} View Realtime Service Logs"
+    echo -e " ${GREEN}8)${NC} Configure Main Admin ID & Bot Tokens (Telegram & Bale)"
+    echo -e " ${GREEN}9)${NC} Configure Domain & Optional SSL (Let's Encrypt)"
+    echo -e " ${GREEN}10)${NC} Renew / Test SSL Certificate"
+    echo -e " ${GREEN}11)${NC} Diagnose & Auto-Fix Connection / Firewall"
+    echo -e " ${GREEN}12)${NC} Check Status & Admin Info"
+    echo -e " ${GREEN}13)${NC} View Realtime Service Logs"
     echo "----------------------------------------------------------------"
-    echo -e " ${GREEN}13)${NC} Create Instant Backup & Send to Bots Now"
-    echo -e " ${GREEN}14)${NC} Enable Auto-Start on Boot"
-    echo -e " ${GREEN}15)${NC} Disable Auto-Start on Boot"
+    echo -e " ${GREEN}14)${NC} Create Instant Backup & Send to Main Admin Now"
+    echo -e " ${GREEN}15)${NC} Enable Auto-Start on Boot"
+    echo -e " ${GREEN}16)${NC} Disable Auto-Start on Boot"
     echo "----------------------------------------------------------------"
     echo -e " ${RED}0)${NC} Exit"
     echo ""
-    prompt_user "Please select an option [0-15]: " choice ""
+    prompt_user "Please select an option [0-16]: " choice ""
     case "$choice" in
         1) do_install ;;
         2) do_update ;;
@@ -905,14 +1086,15 @@ show_menu() {
         5) stop_service ;;
         6) restart_service ;;
         7) change_port ;;
-        8) setup_domain_and_ssl ;;
-        9) renew_ssl ;;
-        10) diagnose_and_fix ;;
-        11) do_status ;;
-        12) view_logs ;;
-        13) create_and_send_backup "Manual Menu Trigger" ;;
-        14) enable_service ;;
-        15) disable_service ;;
+        8) configure_bot_and_admin; read -p "Press Enter to return to menu..." -r; show_menu ;;
+        9) setup_domain_and_ssl ;;
+        10) renew_ssl ;;
+        11) diagnose_and_fix ;;
+        12) do_status; show_menu ;;
+        13) view_logs ;;
+        14) create_and_send_backup "Manual Menu Trigger"; read -p "Press Enter to return to menu..." -r; show_menu ;;
+        15) enable_service ;;
+        16) disable_service ;;
         0) exit 0 ;;
         *) log_error "Invalid selection"; sleep 1; show_menu ;;
     esac
@@ -926,6 +1108,9 @@ CLI_PORT=""
 CLI_DOMAIN=""
 CLI_SSL="0"
 CLI_EMAIL=""
+CLI_ADMIN_ID=""
+CLI_BOT_TOKEN=""
+CLI_CHANNEL=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -956,6 +1141,22 @@ while [[ $# -gt 0 ]]; do
         --restart|-r)
             CLI_ACTION="restart"
             shift
+            ;;
+        --admin|--bot|admin|bot)
+            CLI_ACTION="admin"
+            shift
+            ;;
+        --admin-id|-a)
+            CLI_ADMIN_ID="$2"
+            shift 2
+            ;;
+        --token|--bot-token)
+            CLI_BOT_TOKEN="$2"
+            shift 2
+            ;;
+        --channel)
+            CLI_CHANNEL="$2"
+            shift 2
             ;;
         --port|-p|port)
             if [[ -n "$2" && ! "$2" =~ ^-- ]]; then
@@ -1023,6 +1224,9 @@ case "${CLI_ACTION}" in
         ;;
     restart)
         restart_service
+        ;;
+    admin)
+        configure_bot_and_admin
         ;;
     port)
         if [ -n "${CLI_PORT}" ]; then

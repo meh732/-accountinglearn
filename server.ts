@@ -448,7 +448,11 @@ async function startServer() {
 
       // 1. Send backup to Telegram Bot (Admin Chat or Channel)
       const tgToken = config.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
-      const tgTarget = config.telegramAdminChatId || config.telegramChannel || process.env.TELEGRAM_CHANNEL_ID;
+      const tgTarget =
+        config.telegramAdminChatId ||
+        process.env.TELEGRAM_ADMIN_CHAT_ID ||
+        config.telegramChannel ||
+        process.env.TELEGRAM_CHANNEL_ID;
 
       if (!tgToken || !tgTarget) {
         results.telegram = {
@@ -494,7 +498,11 @@ async function startServer() {
 
       // 2. Send backup to Bale Bot
       const baleToken = config.baleToken || process.env.BALE_BOT_TOKEN;
-      const baleTarget = config.baleAdminChatId || config.baleChannel || process.env.BALE_CHANNEL_ID;
+      const baleTarget =
+        config.baleAdminChatId ||
+        process.env.BALE_ADMIN_CHAT_ID ||
+        config.baleChannel ||
+        process.env.BALE_CHANNEL_ID;
 
       if (!baleToken || !baleTarget) {
         results.bale = {

@@ -90,7 +90,7 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
               <div className="p-3 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-start gap-2.5">
                 <CheckCircle2 className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
                 <div>
-                  <b className="text-sky-300">ربات تلگرام (Telegram Bot API):</b> با قرار دادن توکن ربات از BotFather@ و آیدی عمومی یا عددی کانال (مثلاً hesabdari_iran@) و ارتقای ربات به ادمین کانال با دسترسی ارسال پیام.
+                  <b className="text-sky-300">ربات تلگرام (Telegram Bot API):</b> با قرار دادن توکن ربات از BotFather@ و آیدی عمومی یا عددی کانال (مثلاً hesabdari_iran@). توجه: ربات در کانال باید حتماً از بخش Administrators (مدیران) به عنوان مدیر با دسترسی ارسال پیام (Post Messages) اضافه شود.
                 </div>
               </div>
 
