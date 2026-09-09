@@ -214,7 +214,7 @@ export function generateInstallOneLiner(options: DeploymentOptions): string {
   let cmd = "bash <(curl -Ls https://raw.githubusercontent.com/meh732/-accountinglearn/master/install.sh)";
 
   const flags: string[] = [];
-  if (port && port !== 3000) {
+  if (port) {
     flags.push(`--port ${port}`);
   }
   if (domain && domain.trim()) {

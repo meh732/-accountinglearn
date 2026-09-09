@@ -38,7 +38,7 @@ export const DeploymentSettingsTab: React.FC<DeploymentSettingsTabProps> = ({
   const [serverHealth, setServerHealth] = useState<{ port?: number; uptime?: number; ok?: boolean } | null>(null);
   const [loadingHealth, setLoadingHealth] = useState(false);
 
-  const currentPort = formData.deploymentPort || 3000;
+  const currentPort = formData.deploymentPort || 8585;
   const currentDomain = formData.deploymentDomain || "";
   const enableSsl = Boolean(formData.deploymentEnableSsl);
   const sslEmail = formData.deploymentSslEmail || "";
@@ -101,10 +101,11 @@ export const DeploymentSettingsTab: React.FC<DeploymentSettingsTabProps> = ({
   const standaloneScript = generateStandAloneScript(deploymentOptions);
 
   const portPresets = [
-    { label: "پیش‌فرض (3000)", value: 3000 },
+    { label: "پورت دلخواه (8585)", value: 8585 },
     { label: "وب عادی (80)", value: 80 },
     { label: "پورت 8080", value: 8080 },
     { label: "پورت 5000", value: 5000 },
+    { label: "پیش‌فرض (3000)", value: 3000 },
     { label: "امن SSL (443)", value: 443 },
     { label: "پورت 8443", value: 8443 },
   ];
@@ -178,11 +179,11 @@ export const DeploymentSettingsTab: React.FC<DeploymentSettingsTabProps> = ({
                 const val = parseInt(e.target.value, 10);
                 setFormData((prev) => ({
                   ...prev,
-                  deploymentPort: isNaN(val) ? 3000 : val,
+                  deploymentPort: isNaN(val) ? 8585 : val,
                 }));
               }}
               className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 focus:border-indigo-500 text-slate-100 font-mono text-sm tracking-wide focus:outline-none transition-colors"
-              placeholder="3000"
+              placeholder="8585"
             />
           </div>
 

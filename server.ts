@@ -25,22 +25,22 @@ async function startServer() {
   const app = express();
   
   // Port configuration: Defaults to 3000 (required for AI Studio cloud container proxy).
-  // On external VPS, servers or docker, supports custom port via --port argument or APP_PORT / CUSTOM_PORT
+  // On external VPS, servers or docker, supports custom port via --port argument, APP_PORT, CUSTOM_PORT, or PORT
   function getServerPort(): number {
     const portArgIndex = process.argv.indexOf("--port");
     if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
       const parsed = parseInt(process.argv[portArgIndex + 1], 10);
       if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
     }
-    if (process.env.APP_PORT) {
-      const parsed = parseInt(process.env.APP_PORT, 10);
-      if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
-    }
     if (process.env.CUSTOM_PORT) {
       const parsed = parseInt(process.env.CUSTOM_PORT, 10);
       if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
     }
-    if (process.env.NODE_ENV === "production" && process.env.PORT) {
+    if (process.env.APP_PORT) {
+      const parsed = parseInt(process.env.APP_PORT, 10);
+      if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
+    }
+    if (process.env.PORT) {
       const parsed = parseInt(process.env.PORT, 10);
       if (!isNaN(parsed) && parsed > 0 && parsed <= 65535) return parsed;
     }

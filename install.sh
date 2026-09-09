@@ -25,9 +25,9 @@ BIN_LINK_SHORT="/usr/local/bin/acc-bot"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 # Determine application directory
-if [ -f "$(pwd)/package.json" ] && grep -q "accounting" "$(pwd)/package.json" 2>/dev/null; then
+if [ -f "$(pwd)/package.json" ]; then
     APP_DIR="$(pwd)"
-elif [ -d "${INSTALL_DIR}" ]; then
+elif [ -d "${INSTALL_DIR}" ] && [ -f "${INSTALL_DIR}/package.json" ]; then
     APP_DIR="${INSTALL_DIR}"
 else
     APP_DIR="${INSTALL_DIR}"
@@ -37,6 +37,22 @@ BACKUP_DIR="${APP_DIR}/backups"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BACKUP_FILENAME="accounting_bot_backup_${TIMESTAMP}.tar.gz"
 BACKUP_FILEPATH="${BACKUP_DIR}/${BACKUP_FILENAME}"
+
+# Helper to read user input interactively even when piped through curl
+prompt_user() {
+    local prompt_msg="$1"
+    local result_var="$2"
+    local default_val="$3"
+    local input_val=""
+
+    if [ -t 0 ]; then
+        read -p "${prompt_msg}" input_val
+    elif [ -e /dev/tty ]; then
+        read -p "${prompt_msg}" input_val </dev/tty || input_val=""
+    fi
+    input_val="${input_val:-$default_val}"
+    eval "${result_var}=\"${input_val}\""
+}
 
 print_banner() {
     clear 2>/dev/null || true
@@ -273,16 +289,43 @@ do_install() {
         fi
     fi
 
-    # Port Configuration
-    local default_port=3000
+    # 1. Custom Port Selection (انتخاب پورت دلخواه برای نصب)
+    local default_port="8585"
     if [ -z "${CLI_PORT}" ]; then
         echo ""
-        echo -e "${YELLOW}>> Port Configuration (تنظیم پورت اختصاصی پنل تحت وب):${NC}"
-        read -p "Enter web panel port (e.g. 80, 443, 8080, 5000, 3000) [Default: ${default_port}]: " custom_port
-        PORT="${custom_port:-$default_port}"
+        echo -e "${YELLOW}${BOLD}================================================================${NC}"
+        echo -e "${YELLOW}${BOLD}>> تنظیم پورت دلخواه برای پنل مدیریت (Web Panel Custom Port):${NC}"
+        echo -e "${CYAN}شما می‌توانید هر پورت دلخواهی مانند 8585، 80، 8080، 5000 یا 3000 را وارد نمایید.${NC}"
+        echo -e "${YELLOW}================================================================${NC}"
+        prompt_user "شماره پورت دلخواه را وارد کنید [پیش‌فرض: ${default_port}]: " custom_port "${default_port}"
+
+        while ! [[ "${custom_port}" =~ ^[0-9]+$ ]] || [ "${custom_port}" -lt 1 ] || [ "${custom_port}" -gt 65535 ]; do
+            echo -e "${RED}پورت نامعتبر است! شماره پورت باید عددی بین ۱ تا ۶۵۵۳۵ باشد.${NC}"
+            prompt_user "لطفاً مجدداً پورت را وارد کنید: " custom_port "${default_port}"
+        done
+        PORT="${custom_port}"
     else
         PORT="${CLI_PORT}"
-        log_info "Using custom port specified via CLI: ${PORT}"
+        log_info "Using custom port specified via CLI/Environment: ${PORT}"
+    fi
+
+    # Save Port to .env file
+    if [ -f "${APP_DIR}/.env" ]; then
+        if grep -q "^PORT=" "${APP_DIR}/.env"; then
+            sed -i "s/^PORT=.*/PORT=${PORT}/" "${APP_DIR}/.env"
+        else
+            echo "PORT=${PORT}" >> "${APP_DIR}/.env"
+        fi
+        if grep -q "^APP_PORT=" "${APP_DIR}/.env"; then
+            sed -i "s/^APP_PORT=.*/APP_PORT=${PORT}/" "${APP_DIR}/.env"
+        else
+            echo "APP_PORT=${PORT}" >> "${APP_DIR}/.env"
+        fi
+        if grep -q "^CUSTOM_PORT=" "${APP_DIR}/.env"; then
+            sed -i "s/^CUSTOM_PORT=.*/CUSTOM_PORT=${PORT}/" "${APP_DIR}/.env"
+        else
+            echo "CUSTOM_PORT=${PORT}" >> "${APP_DIR}/.env"
+        fi
     fi
 
     # Install npm dependencies
@@ -300,7 +343,7 @@ do_install() {
     run_as_root ln -sf "${APP_DIR}/install.sh" "${BIN_LINK_SHORT}"
 
     # Systemd Service Configuration
-    log_info "Configuring systemd service (${SERVICE_NAME}.service) on Port ${PORT}..."
+    log_info "Configuring systemd service (${SERVICE_NAME}.service) on Custom Port ${PORT}..."
     local run_user
     run_user=$(whoami)
     local node_path
@@ -318,6 +361,7 @@ ExecStart=${node_path} ${APP_DIR}/dist/server.cjs --port ${PORT}
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
+Environment=PORT=${PORT}
 Environment=APP_PORT=${PORT}
 Environment=CUSTOM_PORT=${PORT}
 
@@ -506,18 +550,21 @@ change_port() {
     check_root
     log_info "Configuring custom port for Accounting Bot Platform..."
 
-    local current_port="3000"
+    local current_port="8585"
     if [ -f "${SERVICE_FILE}" ]; then
-        current_port=$(grep "\-\-port" "${SERVICE_FILE}" | awk -F'--port ' '{print $2}' | tr -d ' ' || echo "3000")
+        current_port=$(grep "\-\-port" "${SERVICE_FILE}" | awk -F'--port ' '{print $2}' | tr -d ' ' || echo "8585")
         if [ -z "$current_port" ]; then
-            current_port=$(grep "CUSTOM_PORT=" "${SERVICE_FILE}" | cut -d'=' -f2 || echo "3000")
+            current_port=$(grep "CUSTOM_PORT=" "${SERVICE_FILE}" | cut -d'=' -f2 || echo "8585")
         fi
     fi
-    current_port="${current_port:-3000}"
+    current_port="${current_port:-8585}"
 
-    echo -e " Current Port: ${CYAN}${current_port}${NC}"
-    read -p "Enter new port number (e.g. 80, 443, 8080, 5000, 3000) [Default: 3000]: " new_port
-    new_port="${new_port:-3000}"
+    local new_port="${1:-${CLI_PORT}}"
+    if [ -z "${new_port}" ]; then
+        echo -e " Current Port: ${CYAN}${current_port}${NC}"
+        prompt_user "Enter new port number (e.g. 8585, 80, 443, 8080, 5000) [Default: ${current_port}]: " new_port "${current_port}"
+    fi
+    new_port="${new_port:-$current_port}"
 
     if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
         log_error "Invalid port number. Port must be between 1 and 65535."
@@ -525,11 +572,30 @@ change_port() {
         return 1
     fi
 
-    log_info "Updating systemd service with Port ${new_port}..."
+    log_info "Updating systemd service and .env with Port ${new_port}..."
     local run_user
     run_user=$(whoami)
     local node_path
     node_path=$(command -v node)
+
+    # Update .env
+    if [ -f "${APP_DIR}/.env" ]; then
+        if grep -q "^PORT=" "${APP_DIR}/.env"; then
+            sed -i "s/^PORT=.*/PORT=${new_port}/" "${APP_DIR}/.env"
+        else
+            echo "PORT=${new_port}" >> "${APP_DIR}/.env"
+        fi
+        if grep -q "^APP_PORT=" "${APP_DIR}/.env"; then
+            sed -i "s/^APP_PORT=.*/APP_PORT=${new_port}/" "${APP_DIR}/.env"
+        else
+            echo "APP_PORT=${new_port}" >> "${APP_DIR}/.env"
+        fi
+        if grep -q "^CUSTOM_PORT=" "${APP_DIR}/.env"; then
+            sed -i "s/^CUSTOM_PORT=.*/CUSTOM_PORT=${new_port}/" "${APP_DIR}/.env"
+        else
+            echo "CUSTOM_PORT=${new_port}" >> "${APP_DIR}/.env"
+        fi
+    fi
 
     local service_content="[Unit]
 Description=Accounting Bot Platform for Telegram and Bale (Iran)
@@ -543,6 +609,7 @@ ExecStart=${node_path} ${APP_DIR}/dist/server.cjs --port ${new_port}
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
+Environment=PORT=${new_port}
 Environment=APP_PORT=${new_port}
 Environment=CUSTOM_PORT=${new_port}
 
@@ -888,7 +955,7 @@ while [[ $# -gt 0 ]]; do
             CLI_ACTION="restart"
             shift
             ;;
-        --port|-p)
+        --port|-p|port)
             if [[ -n "$2" && ! "$2" =~ ^-- ]]; then
                 CLI_PORT="$2"
                 shift 2
@@ -914,10 +981,24 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
+            if [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; then
+                CLI_PORT="$1"
+            fi
             shift
             ;;
     esac
 done
+
+# Check if PORT or APP_PORT environment variable was pre-set in the shell
+if [ -z "${CLI_PORT}" ]; then
+    if [ -n "${PORT}" ] && [[ "${PORT}" =~ ^[0-9]+$ ]]; then
+        CLI_PORT="${PORT}"
+    elif [ -n "${APP_PORT}" ] && [[ "${APP_PORT}" =~ ^[0-9]+$ ]]; then
+        CLI_PORT="${APP_PORT}"
+    elif [ -n "${CUSTOM_PORT}" ] && [[ "${CUSTOM_PORT}" =~ ^[0-9]+$ ]]; then
+        CLI_PORT="${CUSTOM_PORT}"
+    fi
+fi
 
 case "${CLI_ACTION}" in
     install)
