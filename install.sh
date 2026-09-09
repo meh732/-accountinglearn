@@ -47,8 +47,10 @@ prompt_user() {
 
     if [ -t 0 ]; then
         read -p "${prompt_msg}" input_val
-    elif [ -e /dev/tty ]; then
-        read -p "${prompt_msg}" input_val </dev/tty || input_val=""
+    elif (exec </dev/tty) 2>/dev/null; then
+        read -p "${prompt_msg}" input_val </dev/tty 2>/dev/null || input_val=""
+    else
+        read -p "${prompt_msg}" input_val 2>/dev/null || input_val=""
     fi
     input_val="${input_val:-$default_val}"
     eval "${result_var}=\"${input_val}\""
@@ -894,7 +896,7 @@ show_menu() {
     echo "----------------------------------------------------------------"
     echo -e " ${RED}0)${NC} Exit"
     echo ""
-    read -p "Please select an option [0-15]: " choice
+    prompt_user "Please select an option [0-15]: " choice ""
     case "$choice" in
         1) do_install ;;
         2) do_update ;;
@@ -1034,12 +1036,6 @@ case "${CLI_ACTION}" in
         view_logs
         ;;
     *)
-        if [ -n "${CLI_PORT}" ] || [ -n "${CLI_DOMAIN}" ] || [ "${CLI_SSL}" = "1" ]; then
-            do_install
-        elif ! command -v "${SERVICE_NAME}" >/dev/null 2>&1 && [ ! -f "${SERVICE_FILE}" ] && [ ! -f "$(pwd)/package.json" ]; then
-            do_install
-        else
-            show_menu
-        fi
+        show_menu
         ;;
 esac

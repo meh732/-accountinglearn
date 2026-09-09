@@ -53,6 +53,11 @@ async function startServer() {
   // --- API Routes ---
 
   // Health check & deployment status
+  app.get("/install.sh", (_req, res) => {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.sendFile(path.join(process.cwd(), "install.sh"));
+  });
+
   app.get("/api/health", (_req, res) => {
     res.json({
       status: "ok",
