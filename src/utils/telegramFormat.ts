@@ -146,10 +146,10 @@ export function formatDayPost(
     if (post.quizOptions && post.quizOptions.length > 0) {
       parts.push(`<b>گزینه‌ها:</b>`);
       post.quizOptions.forEach((opt, idx) => {
-        const icons = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"];
-        parts.push(`${icons[idx] || `(${idx + 1})`} ${opt}`);
+        const icons = ["🔵 ۱)", "🟢 ۲)", "🟡 ۳)", "🟣 ۴)"];
+        parts.push(`${icons[idx] || `(${idx + 1})`} <b>${opt}</b>`);
       });
-      parts.push(`\n✍️ <i>پاسخ خود را در کامنت‌ها بنویسید یا برای آزمون زنده وارد مینی‌اپ شوید.</i>`);
+      parts.push(`\n🎯 <b>شرکت در آزمون تستی داخل ربات با ثبت کارنامه:</b>\n💡 <i>برای پاسخ دادن به این تست با دکمه‌های شیشه‌ای، دریافت پاسخ تشریحی و ثبت امتیاز در جدول نخبگان، روی دکمه شیشه‌ای زیر پست کلیک کنید 👇</i>`);
     }
   }
 

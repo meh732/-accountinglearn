@@ -14,6 +14,17 @@ import {
   updateSchedulerConfig,
   executeSlot,
 } from "./serverScheduler";
+import {
+  startTelegramLongPolling,
+  processTelegramUpdate,
+  getAllBotUsersStats,
+  getUserDetails,
+  resetBotUser,
+  resetAllBotUsers,
+  recordQuizAnswer,
+  getBotUsername,
+  formatQuizMessage,
+} from "./botInteractiveEngine";
 
 dotenv.config();
 
@@ -787,8 +798,95 @@ async function startServer() {
     }
   });
 
+  // --- Telegram Interactive In-Bot Quiz & Per-User Progress API Routes ---
+
+  // Get general statistics & leaderboard of bot quiz users
+  app.get("/api/bot-users/stats", (_req, res) => {
+    try {
+      const stats = getAllBotUsersStats();
+      const botUser = getBotUsername();
+      return res.json({ ok: true, stats, botUsername: botUser });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Get specific user details, score, and all answered questions
+  app.get("/api/bot-users/details/:userId", (req, res) => {
+    try {
+      const userId = parseInt(req.params.userId, 10);
+      if (isNaN(userId)) {
+        return res.status(400).json({ ok: false, error: "شناسه کاربری نامعتبر است." });
+      }
+      const details = getUserDetails(userId);
+      if (!details) {
+        return res.status(404).json({ ok: false, error: "کاربر یافت نشد." });
+      }
+      return res.json({ ok: true, user: details });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Reset a user's quiz records
+  app.post("/api/bot-users/reset-user", (req, res) => {
+    try {
+      const { userId } = req.body;
+      const success = resetBotUser(Number(userId));
+      return res.json({ ok: success });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Reset all bot users
+  app.post("/api/bot-users/reset-all", (_req, res) => {
+    try {
+      resetAllBotUsers();
+      return res.json({ ok: true, message: "تمامی سوابق کاربران با موفقیت پاکسازی شد." });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Simulated Quiz Answer API for Web Testing / Simulator
+  app.post("/api/bot-interactive/simulate-answer", (req, res) => {
+    try {
+      const { userId = 999901, dayNumber = 1, selectedOptionIndex = 0, userInfo } = req.body;
+      const result = recordQuizAnswer(Number(userId), Number(dayNumber), Number(selectedOptionIndex), userInfo);
+      const formatted = formatQuizMessage(Number(dayNumber), result.user);
+      return res.json({
+        ok: true,
+        result,
+        formattedMessage: formatted,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Telegram Webhook receiver (optional alternative to long polling)
+  app.post("/api/telegram-webhook", async (req, res) => {
+    try {
+      const token = process.env.TELEGRAM_BOT_TOKEN;
+      if (token && req.body) {
+        const currentDay = getSchedulerStatus().currentDayNumber;
+        await processTelegramUpdate(token, req.body, currentDay);
+      }
+      return res.json({ ok: true });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   // Start the 24/7 background auto-pilot scheduler engine
   startSchedulerEngine();
+
+  // Start Telegram Bot Long-Polling for In-Bot Quizzes with Inline Glass Buttons
+  startTelegramLongPolling(
+    () => process.env.TELEGRAM_BOT_TOKEN || "",
+    () => getSchedulerStatus().currentDayNumber
+  );
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

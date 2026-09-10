@@ -6,6 +6,7 @@ import { QATab } from "./components/QATab";
 import { HistoryTab } from "./components/HistoryTab";
 import { DailyQuizzesTab } from "./components/DailyQuizzesTab";
 import { StudentMiniApp } from "./components/StudentMiniApp";
+import { BotQuizUsersTab } from "./components/BotQuizUsersTab";
 import { ChannelPreviewModal } from "./components/ChannelPreviewModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { HelpModal } from "./components/HelpModal";
@@ -609,6 +610,13 @@ export default function App() {
               config={config}
             />
           </div>
+        )}
+
+        {activeTab === "bot_users" && (
+          <BotQuizUsersTab
+            config={config}
+            onOpenSchedulerModal={() => setIsSchedulerOpen(true)}
+          />
         )}
 
         {activeTab === "history" && (

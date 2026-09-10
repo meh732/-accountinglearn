@@ -180,6 +180,18 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           <button
+            onClick={() => onTabChange("bot_users")}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
+              activeTab === "bot_users"
+                ? "bg-purple-600 text-white shadow-md shadow-purple-900/30"
+                : "bg-slate-800/60 text-slate-300 hover:bg-slate-800 hover:text-white"
+            }`}
+          >
+            <span className="w-5 h-5 rounded-md bg-white/20 flex items-center justify-center text-xs font-bold">۵</span>
+            <span>🏆 آزمون‌های ربات و کارنامه کاربران</span>
+          </button>
+
+          <button
             onClick={() => onTabChange("history")}
             className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ml-auto ${
               activeTab === "history"

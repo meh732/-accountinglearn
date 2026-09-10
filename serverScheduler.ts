@@ -11,6 +11,7 @@ import {
   formatFunPost,
 } from "./src/utils/telegramFormat";
 import { BotConfig, DailyPlanMode } from "./src/types";
+import { getBotUsername } from "./botInteractiveEngine";
 
 export interface SchedulerHistoryItem {
   id: string;
@@ -237,6 +238,7 @@ export async function dispatchToChannels(
     telegramChannel?: string;
     baleToken?: string;
     baleChannel?: string;
+    replyMarkup?: any;
   }
 ): Promise<{
   telegram: { ok: boolean; messageId?: number; error?: string; simulated?: boolean };
@@ -255,15 +257,20 @@ export async function dispatchToChannels(
   // 1. Telegram Dispatch
   if (tgToken && tgChannel) {
     try {
+      const payload: Record<string, any> = {
+        chat_id: tgChannel,
+        text: text,
+        parse_mode: "HTML",
+        disable_web_page_preview: false,
+      };
+      if (options?.replyMarkup) {
+        payload.reply_markup = options.replyMarkup;
+      }
+
       const tgRes = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: tgChannel,
-          text: text,
-          parse_mode: "HTML",
-          disable_web_page_preview: false,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await tgRes.json();
       if (data.ok) {
@@ -343,7 +350,56 @@ export async function executeSlot(
 
   console.log(`[Scheduler] 🚀 Publishing slot "${slot}" for Day ${day} at ${time} Tehran Time...`);
 
-  const dispatchResult = await dispatchToChannels(formattedText);
+  let replyMarkup: any = undefined;
+  const botUser = getBotUsername();
+  if (botUser) {
+    if (slot === "evening") {
+      replyMarkup = {
+        inline_keyboard: [
+          [
+            {
+              text: "🎯 شرکت در آزمون تستی داخل ربات با ثبت کارنامه ⭐️",
+              url: `https://t.me/${botUser}?start=quiz_${day}`,
+              style: "success",
+            },
+          ],
+          [
+            {
+              text: "🏆 رتبه‌بندی نخبگان حسابداری 🥇",
+              url: `https://t.me/${botUser}?start=rank`,
+              style: "primary",
+            },
+            {
+              text: "📚 بانک ۹۰ آزمون تخصصی ⚡️",
+              url: `https://t.me/${botUser}?start=bank`,
+              style: "primary",
+            },
+          ],
+        ],
+      };
+    } else if (slot === "morning" || slot === "noon") {
+      replyMarkup = {
+        inline_keyboard: [
+          [
+            {
+              text: `📝 آزمون تستی و تمرین درس امروز (روز ${day}) 🎯`,
+              url: `https://t.me/${botUser}?start=quiz_${day}`,
+              style: "success",
+            },
+          ],
+          [
+            {
+              text: "🤖 ورود به ربات جامع آموزش و آزمون ⚡️",
+              url: `https://t.me/${botUser}?start=main`,
+              style: "primary",
+            },
+          ],
+        ],
+      };
+    }
+  }
+
+  const dispatchResult = await dispatchToChannels(formattedText, { replyMarkup });
 
   let status: SchedulerHistoryItem["status"] = "success";
   if (dispatchResult.telegram.simulated && dispatchResult.bale.simulated) {
