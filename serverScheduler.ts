@@ -12,6 +12,7 @@ import {
 } from "./src/utils/telegramFormat";
 import { BotConfig, DailyPlanMode } from "./src/types";
 import { getBotUsername } from "./botInteractiveEngine";
+import { loadServerBotConfig } from "./serverBotConfig";
 
 export interface SchedulerHistoryItem {
   id: string;
@@ -244,10 +245,11 @@ export async function dispatchToChannels(
   telegram: { ok: boolean; messageId?: number; error?: string; simulated?: boolean };
   bale: { ok: boolean; messageId?: number; error?: string; simulated?: boolean };
 }> {
-  const tgToken = options?.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
-  const tgChannel = options?.telegramChannel || process.env.TELEGRAM_CHANNEL_ID;
-  const baleToken = options?.baleToken || process.env.BALE_BOT_TOKEN;
-  const baleChannel = options?.baleChannel || process.env.BALE_CHANNEL_ID;
+  const serverConfig = loadServerBotConfig();
+  const tgToken = options?.telegramToken || serverConfig.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
+  const tgChannel = options?.telegramChannel || serverConfig.telegramChannel || process.env.TELEGRAM_CHANNEL_ID;
+  const baleToken = options?.baleToken || serverConfig.baleToken || process.env.BALE_BOT_TOKEN;
+  const baleChannel = options?.baleChannel || serverConfig.baleChannel || process.env.BALE_CHANNEL_ID;
 
   const result = {
     telegram: { ok: false, messageId: undefined as number | undefined, error: undefined as string | undefined, simulated: false },

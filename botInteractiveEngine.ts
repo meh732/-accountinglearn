@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { getOrCreateDayItem, initialThreeMonthCurriculum } from "./src/data/threeMonthCurriculum";
 import { initialDailyQuizzes } from "./src/data/quizData";
+import { loadServerBotConfig } from "./serverBotConfig";
 
 export interface TelegramQuizAnswer {
   quizId: string;
@@ -358,6 +359,14 @@ export const BOT_PERSISTENT_REPLY_KEYBOARD = {
 // Initialize Telegram Bot Commands and Chat Menu Button
 export async function initializeBotCommands(token: string) {
   try {
+    // 1. Delete webhook to ensure getUpdates is unblocked and conflict-free
+    try {
+      await callTelegramApi(token, "deleteWebhook", { drop_pending_updates: false });
+    } catch (delErr) {
+      console.warn("deleteWebhook warning:", delErr);
+    }
+
+    // 2. Register bot commands
     await callTelegramApi(token, "setMyCommands", {
       commands: [
         { command: "start", description: "🏠 منوی اصلی و شروع ربات" },
@@ -369,12 +378,23 @@ export async function initializeBotCommands(token: string) {
         { command: "help", description: "❓ راهنما و پشتیبانی" },
       ],
     });
+
+    // 3. Register persistent chat bar Menu button (square/pill button next to message field)
     await callTelegramApi(token, "setChatMenuButton", {
       menu_button: { type: "commands" },
     });
-    console.log("✅ Telegram Chat Bar Menu & Commands registered successfully.");
-  } catch (err) {
+
+    // 4. Cache connected bot details
+    const meRes = await callTelegramApi(token, "getMe", {});
+    if (meRes.ok && meRes.result?.username) {
+      botUsername = meRes.result.username;
+      console.log(`✅ Telegram Bot Connected: @${botUsername} (${meRes.result.first_name}) - Commands & Menu button registered!`);
+    }
+
+    return { ok: true, username: botUsername };
+  } catch (err: any) {
     console.warn("Failed to set Telegram bot commands:", err);
+    return { ok: false, error: err.message };
   }
 }
 
@@ -919,10 +939,54 @@ export async function processTelegramUpdate(token: string, update: any, currentD
           return;
         }
 
+        // Ensure chat menu button is explicitly set for this user chat
+        try {
+          await callTelegramApi(token, "setChatMenuButton", {
+            chat_id: chatId,
+            menu_button: { type: "commands" },
+          });
+        } catch (_e) {}
+
         // Send persistent keyboard first to place menu button in chat bar
         await callTelegramApi(token, "sendMessage", {
           chat_id: chatId,
           text: `✨ <b>منوی دسترسی سریع ربات فعال شد.</b>\nمی‌توانید از دکمه‌های زیر کادر چت یا دکمه‌های شیشه‌ای زیر استفاده نمایید:`,
+          parse_mode: "HTML",
+          reply_markup: BOT_PERSISTENT_REPLY_KEYBOARD,
+        });
+
+        const menuMsg = formatMainMenuMessage(user);
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: menuMsg.text,
+          parse_mode: "HTML",
+          reply_markup: menuMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Handle /menu or "منوی اصلی"
+      if (
+        text === "/menu" ||
+        text === "/main" ||
+        text === "منوی اصلی" ||
+        text === "منو" ||
+        text === "خانه" ||
+        text === "شروع" ||
+        text === "🏠 منوی اصلی" ||
+        text === "🏠 منوی اصلی ربات 📌" ||
+        text === "منوی اصلی ربات"
+      ) {
+        try {
+          await callTelegramApi(token, "setChatMenuButton", {
+            chat_id: chatId,
+            menu_button: { type: "commands" },
+          });
+        } catch (_e) {}
+
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: `🏠 <b>منوی اصلی ربات حسابداری:</b>`,
           parse_mode: "HTML",
           reply_markup: BOT_PERSISTENT_REPLY_KEYBOARD,
         });
@@ -1079,6 +1143,13 @@ export async function processTelegramUpdate(token: string, update: any, currentD
       }
 
       // Default response -> Show Main Menu with Persistent Keyboard
+      await callTelegramApi(token, "sendMessage", {
+        chat_id: chatId,
+        text: `✨ <b>منوی اصلی ربات:</b>`,
+        parse_mode: "HTML",
+        reply_markup: BOT_PERSISTENT_REPLY_KEYBOARD,
+      });
+
       const menuMsg = formatMainMenuMessage(user);
       await callTelegramApi(token, "sendMessage", {
         chat_id: chatId,
@@ -1092,6 +1163,10 @@ export async function processTelegramUpdate(token: string, update: any, currentD
   }
 }
 
+let pollingError = "";
+let lastActiveTimestamp = "";
+let totalUpdatesCount = 0;
+
 // Start Long Polling Engine for Telegram Bot
 export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGetter: () => number) {
   if (isPollingActive) return;
@@ -1104,18 +1179,24 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
     let commandsRegistered = false;
 
     while (isPollingActive) {
-      const token = tokenGetter();
+      const token = (tokenGetter() || loadServerBotConfig().telegramToken || "").trim();
       if (!token) {
-        // Sleep 10s if token not configured yet
-        await new Promise((resolve) => setTimeout(resolve, 10000));
+        pollingError = "توکن تلگرام تنظیم نشده است";
+        // Sleep 5s if token not configured yet
+        await new Promise((resolve) => setTimeout(resolve, 5000));
         continue;
       }
 
       try {
         // Register Telegram Bot commands and menu button once
         if (!commandsRegistered) {
-          await initializeBotCommands(token);
-          commandsRegistered = true;
+          const initRes = await initializeBotCommands(token);
+          if (initRes.ok) {
+            commandsRegistered = true;
+            pollingError = "";
+          } else {
+            pollingError = initRes.error || "خطا در ثبت منو";
+          }
         }
 
         // First, ensure we have bot username
@@ -1137,15 +1218,19 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
         const data = await res.json();
 
         if (data.ok && Array.isArray(data.result)) {
+          pollingError = "";
+          lastActiveTimestamp = new Date().toISOString();
           const currentDay = dayNumberGetter();
           for (const update of data.result) {
             lastUpdateId = Math.max(lastUpdateId, update.update_id);
+            totalUpdatesCount++;
             // Process update asynchronously
             processTelegramUpdate(token, update, currentDay).catch((e) =>
               console.error("Error handling update in loop:", e)
             );
           }
         } else if (!data.ok) {
+          pollingError = data.description || `Telegram Error ${data.error_code}`;
           // In case of conflict with another webhook or rate limit
           if (data.error_code === 409) {
             // Webhook conflict, delete webhook to allow getUpdates
@@ -1157,6 +1242,7 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
         }
       } catch (err: any) {
         if (err.name !== "AbortError") {
+          pollingError = err.message || "خطای اتصال به سرور تلگرام";
           // Network hiccup, wait 5s before reconnecting
           await new Promise((resolve) => setTimeout(resolve, 5000));
         }
@@ -1168,6 +1254,41 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
     console.error("Telegram long-polling loop terminated with error:", err);
     isPollingActive = false;
   });
+}
+
+// Notify token changed or re-register menu
+export async function notifyBotTokenChanged(newToken?: string) {
+  const token = (newToken || loadServerBotConfig().telegramToken || "").trim();
+  if (!token) return { ok: false, error: "توکن تلگرام موجود نیست." };
+
+  try {
+    const res = await initializeBotCommands(token);
+    if (res.ok) {
+      pollingError = "";
+    }
+    // Restart polling abort controller if active to break out of any idle sleep
+    if (pollingAbortController) {
+      pollingAbortController.abort();
+      pollingAbortController = new AbortController();
+    }
+    return res;
+  } catch (e: any) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Get comprehensive status of telegram bot engine
+export function getTelegramBotStatus() {
+  const currentToken = loadServerBotConfig().telegramToken;
+  return {
+    isPollingActive,
+    botUsername,
+    hasToken: Boolean(currentToken),
+    tokenPrefix: currentToken ? currentToken.slice(0, 10) + "..." : "",
+    pollingError,
+    lastActiveTimestamp,
+    totalUpdatesCount,
+  };
 }
 
 // Stop long polling

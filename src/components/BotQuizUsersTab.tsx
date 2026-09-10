@@ -94,6 +94,39 @@ export const BotQuizUsersTab: React.FC<BotQuizUsersTabProps> = ({ config }) => {
   const [simResult, setSimResult] = useState<any | null>(null);
   const [simSubmitting, setSimSubmitting] = useState<boolean>(false);
 
+  // Sync menu state
+  const [syncingMenu, setSyncingMenu] = useState<boolean>(false);
+  const [syncNotice, setSyncNotice] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const handleSyncMenu = async () => {
+    setSyncingMenu(true);
+    setSyncNotice(null);
+    try {
+      const res = await fetch("/api/bot/sync-menu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: config.telegramToken }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSyncNotice({
+          ok: true,
+          message: `✅ منوی ربات تلگرام، مربع منو در نوار پیام و ۷ دستور اصلی فعال شدند! هم‌اکنون در ربات تلگرام دستور /start را ارسال کنید تا گزینه‌ها بالا بیایند.`,
+        });
+        if (data.username) setBotUsername(data.username);
+      } else {
+        setSyncNotice({
+          ok: false,
+          message: data.error || "خطا در ارتباط با تلگرام. لطفاً ابتدا توکن ربات را در بخش تنظیمات وارد فرمایید.",
+        });
+      }
+    } catch (e: any) {
+      setSyncNotice({ ok: false, message: e.message || "خطای ارتباط با سرور" });
+    } finally {
+      setSyncingMenu(false);
+    }
+  };
+
   const fetchStats = async () => {
     setLoading(true);
     try {
@@ -239,6 +272,14 @@ export const BotQuizUsersTab: React.FC<BotQuizUsersTabProps> = ({ config }) => {
 
           <div className="flex flex-wrap items-center gap-3">
             <button
+              onClick={handleSyncMenu}
+              disabled={syncingMenu}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white text-sm font-bold transition shadow-md active:scale-95 disabled:opacity-60"
+            >
+              <Sparkles className={`w-4 h-4 ${syncingMenu ? "animate-spin" : "text-sky-200"}`} />
+              راه‌اندازی منو و دکمه چت در تلگرام
+            </button>
+            <button
               onClick={fetchStats}
               disabled={loading}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-sm font-semibold transition shadow-sm active:scale-95"
@@ -256,6 +297,23 @@ export const BotQuizUsersTab: React.FC<BotQuizUsersTabProps> = ({ config }) => {
             </button>
           </div>
         </div>
+
+        {syncNotice && (
+          <div
+            className={`mt-4 p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
+              syncNotice.ok
+                ? "bg-emerald-950/70 border-emerald-500/50 text-emerald-200"
+                : "bg-rose-950/70 border-rose-500/50 text-rose-200"
+            }`}
+          >
+            {syncNotice.ok ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            ) : (
+              <XCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            )}
+            <span className="leading-relaxed font-medium">{syncNotice.message}</span>
+          </div>
+        )}
 
         {/* Bot Username & Deep-link Indicator */}
         {botUsername ? (

@@ -17,6 +17,7 @@ import {
   Database,
   Terminal,
   Globe,
+  Sparkles,
 } from "lucide-react";
 import { BotConfig } from "../types";
 import { DeploymentSettingsTab } from "./DeploymentSettingsTab";
@@ -59,9 +60,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [tgTestState, setTgTestState] = useState<{ loading: boolean; result?: any; error?: string }>({
     loading: false,
   });
+  const [syncMenuState, setSyncMenuState] = useState<{ loading: boolean; ok?: boolean; message?: string }>({
+    loading: false,
+  });
   const [baleTestState, setBaleTestState] = useState<{ loading: boolean; result?: any; error?: string }>({
     loading: false,
   });
+
+  // Fast register Telegram chat menu button and commands
+  const handleSyncTelegramMenu = async () => {
+    if (!formData.telegramToken) {
+      setSyncMenuState({ loading: false, ok: false, message: "لطفاً ابتدا توکن ربات تلگرام را وارد فرمایید." });
+      return;
+    }
+    setSyncMenuState({ loading: true });
+    try {
+      // First save config to server
+      await fetch("/api/bot-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+
+      const res = await fetch("/api/bot/sync-menu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: formData.telegramToken }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setSyncMenuState({
+          loading: false,
+          ok: true,
+          message: `✅ تبریک! مربع منو در نوار چت (Chat Bar Menu) و دستورات اصلی در ربات @${data.username || "شما"} با موفقیت ثبت شد و وب‌هوک قدیمی پاکسازی گردید. اکنون با ارسال /start در تلگرام، منوی گزینه‌ها و کیبورد سریع بالا می‌آید.`,
+        });
+      } else {
+        setSyncMenuState({ loading: false, ok: false, message: data.error || "خطا در ثبت منو در سرور تلگرام" });
+      }
+    } catch (err: any) {
+      setSyncMenuState({ loading: false, ok: false, message: err.message || "خطای ارتباط با سرور" });
+    }
+  };
 
   // Backup dispatch state
   const [backupSending, setBackupSending] = useState(false);
@@ -199,7 +238,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     reader.readAsText(file);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    try {
+      await fetch("/api/bot-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+    } catch (e) {
+      console.warn("Failed to persist bot config to server:", e);
+    }
     onSaveConfig(formData);
     onClose();
   };
@@ -349,6 +397,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     />
                   </div>
                 </div>
+
+                {/* Sync Menu Action & Instructions */}
+                <div className="mt-4 pt-3.5 border-t border-sky-500/20 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="text-[11px] text-slate-300">
+                    💡 برای فعال‌سازی <b>مربع منو در نوار چت تلگرام</b> و پاسخگویی به <code>/start</code>، این دکمه را بزنید:
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSyncTelegramMenu}
+                    disabled={syncMenuState.loading || !formData.telegramToken}
+                    className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md transition disabled:opacity-50 shrink-0"
+                  >
+                    {syncMenuState.loading ? (
+                      <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 text-sky-200" />
+                    )}
+                    <span>راه‌اندازی فوری منو در تلگرام</span>
+                  </button>
+                </div>
+
+                {syncMenuState.message && (
+                  <div
+                    className={`mt-3 p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
+                      syncMenuState.ok
+                        ? "bg-emerald-950/60 border-emerald-500/40 text-emerald-200"
+                        : "bg-rose-950/60 border-rose-500/40 text-rose-200"
+                    }`}
+                  >
+                    {syncMenuState.ok ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    )}
+                    <span className="leading-relaxed">{syncMenuState.message}</span>
+                  </div>
+                )}
 
                 {tgTestState.result && (
                   <div className="mt-3 p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs flex items-center gap-2">

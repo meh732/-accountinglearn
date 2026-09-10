@@ -24,7 +24,11 @@ import {
   recordQuizAnswer,
   getBotUsername,
   formatQuizMessage,
+  notifyBotTokenChanged,
+  getTelegramBotStatus,
+  initializeBotCommands,
 } from "./botInteractiveEngine";
+import { loadServerBotConfig, saveServerBotConfig } from "./serverBotConfig";
 
 dotenv.config();
 
@@ -865,10 +869,61 @@ async function startServer() {
     }
   });
 
+  // --- Persistent Bot Configuration & Live Sync Endpoints ---
+  app.get("/api/bot-config", (_req, res) => {
+    try {
+      const cfg = loadServerBotConfig();
+      return res.json({ ok: true, config: cfg });
+    } catch (e: any) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  app.post("/api/bot-config", async (req, res) => {
+    try {
+      const updated = saveServerBotConfig(req.body);
+      if (updated.telegramToken) {
+        // Trigger live command re-registration, webhook cleanup, and poll activation
+        await notifyBotTokenChanged(updated.telegramToken);
+      }
+      return res.json({ ok: true, config: updated });
+    } catch (e: any) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // Force sync / register Menu and Commands on Telegram
+  app.post("/api/bot/sync-menu", async (req, res) => {
+    try {
+      const { token } = req.body || {};
+      const tgToken = (token || loadServerBotConfig().telegramToken || "").trim();
+      if (!tgToken) {
+        return res.status(400).json({
+          ok: false,
+          error: "توکن تلگرام موجود نیست. ابتدا توکن را در بخش تنظیمات وارد نمایید.",
+        });
+      }
+      const syncRes = await notifyBotTokenChanged(tgToken);
+      return res.json(syncRes);
+    } catch (e: any) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
+  // Get live Telegram bot status (polling active, username, menu status, errors)
+  app.get("/api/bot/status", (_req, res) => {
+    try {
+      const status = getTelegramBotStatus();
+      return res.json({ ok: true, status });
+    } catch (e: any) {
+      return res.status(500).json({ ok: false, error: e.message });
+    }
+  });
+
   // Telegram Webhook receiver (optional alternative to long polling)
   app.post("/api/telegram-webhook", async (req, res) => {
     try {
-      const token = process.env.TELEGRAM_BOT_TOKEN;
+      const token = loadServerBotConfig().telegramToken || process.env.TELEGRAM_BOT_TOKEN;
       if (token && req.body) {
         const currentDay = getSchedulerStatus().currentDayNumber;
         await processTelegramUpdate(token, req.body, currentDay);
@@ -882,9 +937,9 @@ async function startServer() {
   // Start the 24/7 background auto-pilot scheduler engine
   startSchedulerEngine();
 
-  // Start Telegram Bot Long-Polling for In-Bot Quizzes with Inline Glass Buttons
+  // Start Telegram Bot Long-Polling for In-Bot Quizzes with Inline Glass Buttons & Chat Menu Button
   startTelegramLongPolling(
-    () => process.env.TELEGRAM_BOT_TOKEN || "",
+    () => loadServerBotConfig().telegramToken || process.env.TELEGRAM_BOT_TOKEN || "",
     () => getSchedulerStatus().currentDayNumber
   );
 

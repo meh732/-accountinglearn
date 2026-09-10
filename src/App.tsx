@@ -58,6 +58,25 @@ export default function App() {
     };
   });
 
+  // Sync config from server on mount
+  useEffect(() => {
+    fetch("/api/bot-config")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && data.config) {
+          setConfig((prev) => ({
+            ...prev,
+            ...data.config,
+            telegramToken: data.config.telegramToken || prev.telegramToken,
+            telegramChannel: data.config.telegramChannel || prev.telegramChannel,
+            baleToken: data.config.baleToken || prev.baleToken,
+            baleChannel: data.config.baleChannel || prev.baleChannel,
+          }));
+        }
+      })
+      .catch((e) => console.log("Server bot-config not yet created:", e));
+  }, []);
+
   const [lessons, setLessons] = useState<LessonItem[]>(() => {
     const saved = localStorage.getItem("accounting_bot_lessons");
     if (saved) {
@@ -671,9 +690,24 @@ export default function App() {
           exportedAt: new Date().toISOString(),
         }}
         onRestoreData={handleRestoreData}
-        onSaveConfig={(newCfg) => {
+        onSaveConfig={async (newCfg) => {
           setConfig(newCfg);
-          showToast("تنظیمات ربات‌ها، کانال‌ها و بکاپ با موفقیت ذخیره شد.", "success");
+          localStorage.setItem("accounting_bot_config", JSON.stringify(newCfg));
+          try {
+            const res = await fetch("/api/bot-config", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(newCfg),
+            });
+            const data = await res.json();
+            if (data.ok) {
+              showToast("تنظیمات در سرور ربات ذخیره شد و منوی تلگرام فعال گردید.", "success");
+            } else {
+              showToast("تنظیمات با موفقیت ذخیره شد.", "success");
+            }
+          } catch (e) {
+            showToast("تنظیمات با موفقیت ذخیره شد.", "success");
+          }
         }}
       />
 
