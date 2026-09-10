@@ -8,6 +8,12 @@ import {
   accountingFunPosts,
   verifiedAccountingNews,
 } from "./src/data/accountingNewsAndFun";
+import {
+  startSchedulerEngine,
+  getSchedulerStatus,
+  updateSchedulerConfig,
+  executeSlot,
+} from "./serverScheduler";
 
 dotenv.config();
 
@@ -737,6 +743,52 @@ async function startServer() {
       });
     }
   });
+
+  // --- 24/7 Auto-Pilot Background Publisher API Routes ---
+
+  // Get current status of 24/7 background scheduler
+  app.get("/api/scheduler/status", (_req, res) => {
+    try {
+      const status = getSchedulerStatus();
+      return res.json({ ok: true, status });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Update configuration of 24/7 scheduler (enable/disable, times, day, plan mode)
+  app.post("/api/scheduler/config", (req, res) => {
+    try {
+      const updated = updateSchedulerConfig(req.body);
+      return res.json({ ok: true, status: updated });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Trigger an immediate manual/test execution of a scheduled slot
+  app.post("/api/scheduler/trigger-now", async (req, res) => {
+    try {
+      const { slot = "morning", forceDay } = req.body;
+      const historyItem = await executeSlot(
+        slot as "morning" | "noon" | "evening" | "late_night",
+        {
+          forceDay: typeof forceDay === "number" ? forceDay : undefined,
+          manual: true,
+        }
+      );
+      return res.json({
+        ok: true,
+        item: historyItem,
+        status: getSchedulerStatus(),
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Start the 24/7 background auto-pilot scheduler engine
+  startSchedulerEngine();
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

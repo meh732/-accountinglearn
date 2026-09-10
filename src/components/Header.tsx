@@ -1,10 +1,11 @@
 import React from "react";
-import { Send, Settings, ShieldCheck, Sparkles, Radio, HelpCircle, Globe } from "lucide-react";
+import { Send, Settings, ShieldCheck, Sparkles, Radio, HelpCircle, Globe, Clock, Zap } from "lucide-react";
 import { BotConfig } from "../types";
 
 interface HeaderProps {
   config: BotConfig;
   onOpenSettings: () => void;
+  onOpenScheduler: () => void;
   activeTab: string;
   onTabChange: (tab: string) => void;
   sentCount: number;
@@ -14,6 +15,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   config,
   onOpenSettings,
+  onOpenScheduler,
   activeTab,
   onTabChange,
   sentCount,
@@ -49,6 +51,16 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Connection Badges & Controls */}
           <div className="flex items-center flex-wrap gap-2.5">
+            {/* Auto-Pilot 24/7 Scheduler Status Badge & Button */}
+            <button
+              onClick={onOpenScheduler}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-xs font-bold border border-emerald-500/40 transition-all shadow-sm group animate-pulse"
+              title="مدیریت موتور ارسال خودکار ۲۴/۷ روزانه به کانال"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+              <span>⚡ ارسال خودکار ۲۴/۷ فعال</span>
+            </button>
+
             {/* Telegram Badge */}
             <div
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border ${

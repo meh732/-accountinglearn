@@ -702,6 +702,60 @@ do_status() {
     read -p "Press Enter to return to menu..." -r
 }
 
+manage_scheduler_cli() {
+    print_banner
+    echo -e "${CYAN}${BOLD}=== ⚡ 24/7 Auto-Pilot Background Scheduler Engine ===${NC}"
+    echo ""
+    local current_port="3000"
+    if [ -f "${SERVICE_FILE}" ]; then
+        current_port=$(grep "\-\-port" "${SERVICE_FILE}" | awk -F'--port ' '{print $2}' | tr -d ' ' || echo "3000")
+    fi
+    current_port="${current_port:-3000}"
+
+    local status_json
+    status_json=$(curl -s "http://127.0.0.1:${current_port}/api/scheduler/status" 2>/dev/null || echo "")
+
+    if [ -n "$status_json" ]; then
+        echo -e " ${GREEN}● Auto-Pilot Scheduler API Connected${NC}"
+        echo -e " ${status_json}" | grep -o '"tehranTimeNow":"[^"]*"' | sed 's/"//g' | sed 's/tehranTimeNow:/ Tehran Time: /' || true
+        echo -e " ${status_json}" | grep -o '"currentDayNumber":[0-9]*' | sed 's/currentDayNumber:/ Course Day: Day /' || true
+    else
+        echo -e " ${YELLOW}Service is not running or port ${current_port} is not responding.${NC}"
+    fi
+
+    echo ""
+    echo "Options:"
+    echo -e " 1) Force Trigger Morning Post (09:00 - Theory Lesson) Now"
+    echo -e " 2) Force Trigger Noon Post (14:30 - Workshop/News) Now"
+    echo -e " 3) Force Trigger Evening Post (20:00 - Quiz Test) Now"
+    echo -e " 4) Force Trigger Late-Night Post (22:30 - Fun & Memes) Now"
+    echo -e " 0) Back to main menu"
+    echo ""
+    prompt_user "Select option [0-4]: " sched_choice "0"
+
+    case "$sched_choice" in
+        1)
+            log_info "Triggering Morning Post..."
+            curl -s -X POST "http://127.0.0.1:${current_port}/api/scheduler/trigger-now" -H "Content-Type: application/json" -d '{"slot":"morning"}' | grep -o '"ok":true' && log_success "Morning post sent!" || log_error "Failed to send"
+            ;;
+        2)
+            log_info "Triggering Noon Post..."
+            curl -s -X POST "http://127.0.0.1:${current_port}/api/scheduler/trigger-now" -H "Content-Type: application/json" -d '{"slot":"noon"}' | grep -o '"ok":true' && log_success "Noon post sent!" || log_error "Failed to send"
+            ;;
+        3)
+            log_info "Triggering Evening Post..."
+            curl -s -X POST "http://127.0.0.1:${current_port}/api/scheduler/trigger-now" -H "Content-Type: application/json" -d '{"slot":"evening"}' | grep -o '"ok":true' && log_success "Evening post sent!" || log_error "Failed to send"
+            ;;
+        4)
+            log_info "Triggering Late-Night Post..."
+            curl -s -X POST "http://127.0.0.1:${current_port}/api/scheduler/trigger-now" -H "Content-Type: application/json" -d '{"slot":"late_night"}' | grep -o '"ok":true' && log_success "Late-night post sent!" || log_error "Failed to send"
+            ;;
+        *)
+            ;;
+    esac
+    read -p "Press Enter to return to menu..." -r
+}
+
 view_logs() {
     log_info "Displaying live logs (Press Ctrl+C to exit)..."
     run_as_root journalctl -u "${SERVICE_NAME}" -f -n 50
@@ -1074,10 +1128,11 @@ show_menu() {
     echo -e " ${GREEN}14)${NC} Create Instant Backup & Send to Main Admin Now"
     echo -e " ${GREEN}15)${NC} Enable Auto-Start on Boot"
     echo -e " ${GREEN}16)${NC} Disable Auto-Start on Boot"
+    echo -e " ${GREEN}17)${NC} ${CYAN}⚡ 24/7 Auto-Pilot Daily Scheduler & Test Triggers${NC}"
     echo "----------------------------------------------------------------"
     echo -e " ${RED}0)${NC} Exit"
     echo ""
-    prompt_user "Please select an option [0-16]: " choice ""
+    prompt_user "Please select an option [0-17]: " choice ""
     case "$choice" in
         1) do_install ;;
         2) do_update ;;
@@ -1095,6 +1150,7 @@ show_menu() {
         14) create_and_send_backup "Manual Menu Trigger"; read -p "Press Enter to return to menu..." -r; show_menu ;;
         15) enable_service ;;
         16) disable_service ;;
+        17) manage_scheduler_cli; show_menu ;;
         0) exit 0 ;;
         *) log_error "Invalid selection"; sleep 1; show_menu ;;
     esac
@@ -1183,6 +1239,10 @@ while [[ $# -gt 0 ]]; do
             CLI_ACTION="logs"
             shift
             ;;
+        --scheduler|-sc|scheduler)
+            CLI_ACTION="scheduler"
+            shift
+            ;;
         *)
             if [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; then
                 CLI_PORT="$1"
@@ -1238,6 +1298,9 @@ case "${CLI_ACTION}" in
         ;;
     logs)
         view_logs
+        ;;
+    scheduler)
+        manage_scheduler_cli
         ;;
     *)
         show_menu

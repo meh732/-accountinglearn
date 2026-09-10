@@ -9,6 +9,7 @@ import { StudentMiniApp } from "./components/StudentMiniApp";
 import { ChannelPreviewModal } from "./components/ChannelPreviewModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { HelpModal } from "./components/HelpModal";
+import { AutoPilotSchedulerModal } from "./components/AutoPilotSchedulerModal";
 import {
   LessonItem,
   AdvancedTopic,
@@ -167,6 +168,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>("zero_to_hero");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isSchedulerOpen, setIsSchedulerOpen] = useState(false);
 
   // Preview & Send Modal State
   const [previewModal, setPreviewModal] = useState<{
@@ -506,6 +508,7 @@ export default function App() {
       <Header
         config={config}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenScheduler={() => setIsSchedulerOpen(true)}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         sentCount={historyLogs.length}
@@ -513,7 +516,36 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-4 sm:py-6">
+        {/* 24/7 Auto-Pilot Background Publisher Active Ribbon */}
+        <div className="mb-5 p-3 sm:p-4 rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950 border border-emerald-500/30 shadow-lg shadow-emerald-950/20 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+              <Sparkles className="w-5 h-5 animate-spin" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs sm:text-sm font-bold text-white">
+                  ⚡ موتور ارسال خودکار روزانه ربات روی سرور فعال است (24/7 Auto-Pilot)
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30">
+                  شبانه‌روزی
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                ربات آموزش‌های روزانه دوره ۳ ماهه (نوبت صبح: ۰۹:۰۰ | نوبت ظهر: ۱۴:۳۰ | نوبت شب: ۲۰:۰۰ | آخر شب: ۲۲:۳۰) را به صورت مستقل به کانال ارسال می‌کند.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setIsSchedulerOpen(true)}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
+            >
+              <span>⚙️ مدیریت زمان‌بندی و تست ارسال فوری</span>
+            </button>
+          </div>
+        </div>
         {activeTab === "zero_to_hero" && (
           <ZeroToHeroTab
             lessons={lessons}
@@ -639,6 +671,14 @@ export default function App() {
 
       {/* Help Modal */}
       <HelpModal isOpen={isHelpOpen} onClose={() => setIsHelpOpen(false)} />
+
+      {/* 24/7 Auto-Pilot Scheduler Modal */}
+      <AutoPilotSchedulerModal
+        isOpen={isSchedulerOpen}
+        onClose={() => setIsSchedulerOpen(false)}
+        config={config}
+        onShowToast={showToast}
+      />
 
     </div>
   );
