@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { getOrCreateDayItem, initialThreeMonthCurriculum } from "./src/data/threeMonthCurriculum";
 import { initialDailyQuizzes } from "./src/data/quizData";
-import { practicalJournalScenarios, JournalScenario, JournalArticle } from "./src/data/journalScenarios";
+import { practicalJournalScenarios, JournalScenario, JournalArticle, getJournalScenario } from "./src/data/journalScenarios";
 import { loadServerBotConfig, saveServerBotConfig, sanitizeValue } from "./serverBotConfig";
 import { getSchedulerStatus, updateSchedulerConfig, executeSlot } from "./serverScheduler";
 
@@ -518,7 +518,7 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
   const inlineKeyboard: any[][] = [];
 
   if (!userAnswer) {
-    // 4 option buttons with neutral style to prevent accidental giveaways
+    // 4 option buttons ONLY with clean layout
     inlineKeyboard.push([
       { text: `1️⃣ گزینه ۱`, callback_data: `q_ans:${dayNumber}:0`, style: "primary" },
       { text: `2️⃣ گزینه ۲`, callback_data: `q_ans:${dayNumber}:1`, style: "primary" },
@@ -527,22 +527,14 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
       { text: `3️⃣ گزینه ۳`, callback_data: `q_ans:${dayNumber}:2`, style: "primary" },
       { text: `4️⃣ گزینه ۴`, callback_data: `q_ans:${dayNumber}:3`, style: "primary" },
     ]);
-    // Dedicated Button for Accounting Journal Entry right inside the Quiz
-    inlineKeyboard.push([
-      { text: `📜 سند حسابداری دوبل روز ${dayNumber} 📑`, callback_data: `q_sanad:${dayNumber}`, style: "success" },
-    ]);
   } else {
-    // Buttons after answering
-    inlineKeyboard.push([
-      { text: `📜 مشاهده کامل سند حسابداری این روز 📑`, callback_data: `q_sanad:${dayNumber}`, style: "success" },
-    ]);
-
+    // Navigation & Review Buttons after answering
     const navRow = [];
     if (dayNumber > 1) {
-      navRow.push({ text: `⬅️ روز قبلی (${dayNumber - 1})`, callback_data: `q_show:${dayNumber - 1}`, style: "primary" });
+      navRow.push({ text: `⬅️ آزمون روز قبل (${dayNumber - 1})`, callback_data: `q_show:${dayNumber - 1}`, style: "primary" });
     }
     if (dayNumber < 90) {
-      navRow.push({ text: `➡️ روز بعدی (${dayNumber + 1})`, callback_data: `q_show:${dayNumber + 1}`, style: "primary" });
+      navRow.push({ text: `آزمون روز بعد (${dayNumber + 1}) ➡️`, callback_data: `q_show:${dayNumber + 1}`, style: "primary" });
     }
     if (navRow.length > 0) inlineKeyboard.push(navRow);
 
@@ -552,13 +544,13 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
     ]);
   }
 
-  // Utility row with rich icons and background styles
+  // Quick navigation row
   inlineKeyboard.push([
-    { text: `✍️ کارگاه ثبت سند دستی 📑`, callback_data: `sanad_list`, style: "success" },
-    { text: `🏆 کارنامه و رتبه من ⭐️`, callback_data: `my_stats`, style: "success" },
+    { text: `📚 بانک ۹۰ آزمون تستی ⚡️`, callback_data: `q_page:1`, style: "primary" },
+    { text: `📑 کارگاه ۹۰ سند حسابداری ✍️`, callback_data: `sanad_page:1`, style: "success" },
   ]);
   inlineKeyboard.push([
-    { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
+    { text: `🏆 کارنامه و رتبه من ⭐️`, callback_data: `my_stats`, style: "success" },
     { text: `🥇 جدول نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
   ]);
   inlineKeyboard.push([
@@ -589,7 +581,7 @@ export function formatDailySanadMessage(dayNumber: number, user?: TelegramBotUse
     text += `💡 <b>نکته طلایی و استاندارد مربوطه:</b>\n<blockquote>${morningPost.keyRule}</blockquote>\n\n`;
   }
 
-  text += `👇 برای سنجش یادگیری خود، در آزمون تستی همین روز شرکت کنید یا وارد کارگاه عملی شوید:`;
+  text += `👇 برای سنجش یادگیری خود، در آزمون تستی همین روز شرکت کنید یا وارد کارگاه عملی ۹۰ سناریو شوید:`;
 
   const inlineKeyboard: any[][] = [];
 
@@ -598,7 +590,7 @@ export function formatDailySanadMessage(dayNumber: number, user?: TelegramBotUse
     { text: `📝 شرکت در آزمون تستی روز ${dayNumber} 🎯`, callback_data: `q_show:${dayNumber}`, style: "success" },
   ]);
   inlineKeyboard.push([
-    { text: `✍️ کارگاه عملی ۱۰ سناریوی ثبت سند 📑`, callback_data: `sanad_list`, style: "success" },
+    { text: `✍️ ورود به کارگاه ۹۰ سند حسابداری 📑`, callback_data: `sanad_page:1`, style: "success" },
     { text: `📖 مطالعه کامل درس روز ${dayNumber} ☀️`, callback_data: `q_lesson:${dayNumber}`, style: "primary" },
   ]);
 
@@ -848,11 +840,11 @@ export function formatLeaderboardMessage(currentUserId: number) {
 export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: string) {
   let text = `👋 سلام <b>${user.firstName}</b> عزیز،\n`;
   text += `به <b>سامانه جامع آموزش، آزمون و کارگاه ثبت سند حسابداری ایران</b> خوش آمدید! 🇮🇷✨\n\n`;
-  text += `📌 <b>امکانات سامانه هوشمند:</b>\n`;
-  text += `🔹 <b>کارگاه عملی ثبت سند دستی:</b> حل مسائل واقعی بازار کار و بررسی خودکار تراز و صحت سند\n`;
-  text += `🔹 <b>آزمون‌های تستی روزانه دوره ۳ ماهه:</b> سوالات استانداردهای حسابداری و قوانین مالیاتی با کلید تصادفی\n`;
-  text += `🔹 <b>کارنامه و رتبه‌بندی:</b> ثبت اختصاصی امتیازات و محاسبه ضریب تسلط\n`;
-  text += `🔹 <b>صندوق انتقادات و پیشنهادات:</b> ارسال مستقیم نظرات و سوالات شما برای ادمین کانال\n\n`;
+  text += `📌 <b>بخش‌های تخصصی و مجزای سامانه:</b>\n`;
+  text += `۱️⃣ <b>📝 بانک ۹۰ آزمون تستی ۴ گزینه‌ای:</b> سوالات مفهومی استانداردها و قوانین مالیاتی با کلید تصادفی\n`;
+  text += `۲️⃣ <b>📑 کارگاه ۹۰ آزمون ثبت سند دستی (دوبل):</b> سناریوهای واقعی از اسناد ساده تا پیشرفته شرکتی (چک، حقوق، وام، مالیات و بستن حساب‌ها)\n`;
+  text += `۳️⃣ <b>🏆 کارنامه، امتیاز و رتبه‌بندی نخبگان:</b> ثبت هوشمند نمرات و سطح تسلط شما\n`;
+  text += `۴️⃣ <b>📩 صندوق انتقادات و پیشنهادات:</b> ارتباط مستقیم با مدیریت کانال\n\n`;
   text += `⭐️ <b>امتیاز کل شما:</b> ${user.totalScore} امتیاز | 🎯 <b>تست‌های حل‌شده:</b> ${user.correctCount} از ${user.totalAnswered}\n\n`;
   if (channelSignature) text += `${channelSignature}\n\n`;
   text += `👇 <b>لطفاً بخش مورد نظر خود را انتخاب فرمایید:</b>`;
@@ -867,21 +859,22 @@ export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: 
 
   inlineKeyboard.push(
     [
-      { text: `📑 🟢 کارگاه عملی ثبت سند دستی ✍️`, callback_data: `sanad_list`, style: "success" },
+      { text: `📝 🟢 شروع آزمون تستی امروز 🎯`, callback_data: `q_today`, style: "success" },
+      { text: `📑 🟢 کارگاه ثبت سند دستی ✍️`, callback_data: `sanad_page:1`, style: "success" },
     ],
     [
-      { text: `🎯 🟢 شروع آزمون تستی امروز 🎯`, callback_data: `q_today`, style: "success" },
+      { text: `📚 🔵 بانک ۹۰ آزمون تستی ⚡️`, callback_data: `q_page:1`, style: "primary" },
+      { text: `📂 🔵 بانک ۹۰ سناریوی سند 📜`, callback_data: `sanad_page:1`, style: "primary" },
     ],
     [
-      { text: `⚡️ 🔵 بانک جامع ۹۰ آزمون 📚`, callback_data: `q_page:1`, style: "primary" },
-      { text: `⭐️ 🟡 کارنامه و سوابق من 🏆`, callback_data: `my_stats`, style: "success" },
+      { text: `🏆 🟡 کارنامه و سوابق من ⭐️`, callback_data: `my_stats`, style: "success" },
+      { text: `🥇 🟣 جدول نخبگان و رتبه‌بندی 💎`, callback_data: `leaderboard`, style: "primary" },
     ],
     [
-      { text: `☀️ 🟠 درس و آموزش امروز 📖`, callback_data: `q_lesson_today`, style: "primary" },
-      { text: `💎 🟣 جدول نخبگان و رتبه‌بندی 🥇`, callback_data: `leaderboard`, style: "primary" },
-    ],
-    [
+      { text: `📖 🟠 درس و آموزش امروز ☀️`, callback_data: `q_lesson_today`, style: "primary" },
       { text: `📩 🟣 انتقاد، پیشنهاد و نظرات 💬`, callback_data: `feedback_start`, style: "primary" },
+    ],
+    [
       { text: `💡 🔵 راهنمای دستورات ربات ❓`, callback_data: `help_cmd`, style: "primary" },
     ]
   );
@@ -1099,10 +1092,10 @@ export function formatJournalScenarioMessage(
   draftArticles: { accountName: string; side: "debit" | "credit"; amount: number }[] = [],
   evaluationResult?: { isBalanced: boolean; isCorrect: boolean; totalDebit: number; totalCredit: number }
 ) {
-  const scenario = practicalJournalScenarios.find((s) => s.id === scenarioId) || practicalJournalScenarios[0];
-  const isSolved = user?.journalAnswers?.[scenario.id]?.isCorrect;
+  const scenario = getJournalScenario(scenarioId);
+  const isSolved = user?.journalAnswers?.[scenario.id]?.isCorrect || user?.journalAnswers?.[`sc-${scenario.scenarioNumber}`]?.isCorrect;
 
-  let text = `📑 <b>کارگاه عملی ثبت سند حسابداری دستی (شماره ${scenario.scenarioNumber})</b>\n`;
+  let text = `📑 <b>کارگاه عملی ثبت سند حسابداری دستی (سناریو شماره ${scenario.scenarioNumber} از ۹۰)</b>\n`;
   text += `━━━━━━━━━━━━━━━━━━━━\n`;
   text += `🏷 <b>موضوع:</b> ${scenario.title}\n`;
   text += `🎯 <b>دسته‌بندی:</b> ${scenario.category} | ⚡️ <b>سطح:</b> ${scenario.difficulty}\n`;
@@ -1184,21 +1177,20 @@ export function formatJournalScenarioMessage(
     { text: `👁 مشاهده پاسخ تشریحی و استاندارد 💡`, callback_data: `sanad_solution:${scenario.id}`, style: "primary" },
   ]);
 
-  // Navigation rows
+  // Navigation rows for 90 scenarios
   const navRow: any[] = [];
-  const currentIdx = practicalJournalScenarios.findIndex((s) => s.id === scenario.id);
-  if (currentIdx > 0) {
-    const prevId = practicalJournalScenarios[currentIdx - 1].id;
-    navRow.push({ text: `⬅️ سناریوی قبلی (${currentIdx})`, callback_data: `sanad_view:${prevId}`, style: "primary" });
+  const currentNum = scenario.scenarioNumber;
+  if (currentNum > 1) {
+    navRow.push({ text: `⬅️ سناریوی ${currentNum - 1}`, callback_data: `sanad_view:sc-${currentNum - 1}`, style: "primary" });
   }
-  if (currentIdx < practicalJournalScenarios.length - 1) {
-    const nextId = practicalJournalScenarios[currentIdx + 1].id;
-    navRow.push({ text: `سناریوی بعدی (${currentIdx + 2}) ➡️`, callback_data: `sanad_view:${nextId}`, style: "primary" });
+  if (currentNum < 90) {
+    navRow.push({ text: `سناریوی ${currentNum + 1} ➡️`, callback_data: `sanad_view:sc-${currentNum + 1}`, style: "primary" });
   }
   if (navRow.length > 0) inlineKeyboard.push(navRow);
 
+  const pageForThis = Math.ceil(currentNum / 10);
   inlineKeyboard.push([
-    { text: `📚 فهرست ۱۰ سناریوی کارگاه ⚡️`, callback_data: `sanad_list`, style: "primary" },
+    { text: `📚 بانک ۹۰ سناریوی کارگاه ⚡️`, callback_data: `sanad_page:${pageForThis}`, style: "primary" },
     { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
   ]);
   inlineKeyboard.push([
@@ -1208,31 +1200,64 @@ export function formatJournalScenarioMessage(
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
 }
 
-// Format Journal Scenarios List (فهرست ۱۰ سناریوی کاربردی کارگاه سند)
-export function formatJournalListMessage(user?: TelegramBotUser) {
-  let text = `📑 <b>کارگاه جامع ثبت سند دوبل حسابداری (۱۰ سناریوی کاربردی)</b>\n`;
+// Format Journal Scenarios List (فهرست ۹۰ سناریوی کاربردی کارگاه سند با صفحه‌بندی)
+export function formatJournalListMessage(pageNum: number = 1, user?: TelegramBotUser) {
+  const pageSize = 10;
+  const totalScenarios = 90;
+  const totalPages = Math.ceil(totalScenarios / pageSize);
+  const currentPage = Math.max(1, Math.min(totalPages, pageNum));
+  const startNum = (currentPage - 1) * pageSize + 1;
+  const endNum = Math.min(totalScenarios, startNum + pageSize - 1);
+
+  let text = `📑 <b>کارگاه و بانک ۹۰ آزمون عملی ثبت سند حسابداری</b>\n`;
   text += `━━━━━━━━━━━━━━━━━━━━\n`;
-  text += `💡 در این بخش سناریوهای واقعی و روزمره شرکت‌ها (خرید، فروش، اجاره، حقوق، ارزش افزوده و ...) ارائه شده است.\n`;
-  text += `شما می‌توانید سند دستی مربوطه را ثبت و تراز نمایید تا ربات به صورت هوشمند آن را ارزیابی کند.\n\n`;
-  text += `👇 <b>یکی از سناریوهای زیر را جهت شروع انتخاب فرمایید:</b>\n`;
+  text += `📄 صفحه ${currentPage} از ${totalPages} (سناریوهای ${startNum} تا ${endNum})\n\n`;
+  text += `💡 شامل انواع ثبت‌های شرکت از اسناد معمولی تا پیشرفته:\n`;
+  text += `🔹 ثبت چک‌های صیادی، واگذاری، وصول، خرج کردن و برگشت چک\n`;
+  text += `🔹 ثبت حقوق و دستمزد، بیمه ۷٪ و ۲۳٪، مالیات حقوق و مساعده\n`;
+  text += `🔹 ثبت وام و تسهیلات بانکی، بهره تحقق‌نیافته و اقساط\n`;
+  text += `🔹 خرید و فروش، بهای تمام‌شده، انبارداری، استهلاک دارایی\n`;
+  text += `🔹 مالیات ارزش افزوده ۱۰٪، تهاتر فصلی، عملکرد و بستن حساب‌ها\n\n`;
+  text += `راهنما: 🟢 حل‌شده صحیح (+۲۰ امتیاز) | 🔵 حل‌نشده\n`;
+  text += `👇 <b>سناریوی مورد نظر را جهت ورود به کارگاه انتخاب فرمایید:</b>\n`;
 
   const inlineKeyboard: any[][] = [];
 
-  practicalJournalScenarios.forEach((sc) => {
-    const isSolved = user?.journalAnswers?.[sc.id]?.isCorrect;
+  for (let n = startNum; n <= endNum; n++) {
+    const sc = getJournalScenario(n);
+    const isSolved = user?.journalAnswers?.[sc.id]?.isCorrect || user?.journalAnswers?.[`sc-${n}`]?.isCorrect;
     const statusIcon = isSolved ? "✅" : "🔵";
     const statusText = isSolved ? "(حل‌شده)" : "";
     inlineKeyboard.push([
       {
-        text: `${statusIcon} سناریو ${sc.scenarioNumber}: ${sc.title.slice(0, 32)} ${statusText}`,
+        text: `${statusIcon} سناریو ${n}: ${sc.title.slice(0, 32)} ${statusText}`,
         callback_data: `sanad_view:${sc.id}`,
         style: isSolved ? "success" : "primary",
       },
     ]);
-  });
+  }
 
+  // Pagination navigation row
+  const paginationRow: any[] = [];
+  if (currentPage > 1) {
+    paginationRow.push({ text: `⬅️ صفحه قبل`, callback_data: `sanad_page:${currentPage - 1}`, style: "primary" });
+  }
+  paginationRow.push({ text: `📄 ص ${currentPage}/${totalPages}`, callback_data: `sanad_page:${currentPage}` });
+  if (currentPage < totalPages) {
+    paginationRow.push({ text: `صفحه بعد ➡️`, callback_data: `sanad_page:${currentPage + 1}`, style: "primary" });
+  }
+  inlineKeyboard.push(paginationRow);
+
+  // Quick categories
   inlineKeyboard.push([
-    { text: `🏆 کارنامه و امتیازات من ⭐️`, callback_data: `my_stats`, style: "success" },
+    { text: `🌱 ماه ۱: چک و دارایی (۱-۳۰)`, callback_data: `sanad_page:1`, style: "primary" },
+    { text: `🏢 ماه ۲: حقوق و وام (۳۱-۶۰)`, callback_data: `sanad_page:4`, style: "primary" },
+  ]);
+  inlineKeyboard.push([
+    { text: `📊 ماه ۳: مالیات و بستن (۶۱-۹۰)`, callback_data: `sanad_page:7`, style: "primary" },
+    { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
+  ]);
+  inlineKeyboard.push([
     { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
   ]);
 
@@ -1535,13 +1560,14 @@ export async function processTelegramUpdate(token: string, update: any, currentD
       }
 
       // ---------------------------------------------------------------
-      // JOURNAL WORKSHOP CALLBACKS (ثبت سند دستی تعاملی)
+      // JOURNAL WORKSHOP CALLBACKS (ثبت سند دستی تعاملی ۹۰ سناریو)
       // ---------------------------------------------------------------
 
-      // Show list of 10 journal scenarios
-      if (data === "sanad_list") {
+      // Show list of 90 journal scenarios with pagination
+      if (data === "sanad_list" || data.startsWith("sanad_page:")) {
+        const page = data.startsWith("sanad_page:") ? parseInt(data.split(":")[1], 10) || 1 : 1;
         await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
-        const listMsg = formatJournalListMessage(user);
+        const listMsg = formatJournalListMessage(page, user);
         await callTelegramApi(token, "editMessageText", {
           chat_id: chatId,
           message_id: messageId,
@@ -1582,7 +1608,7 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         const side = parts[2] as "debit" | "credit";
         const idx = parseInt(parts[3], 10) || 0;
 
-        const scenario = practicalJournalScenarios.find((s) => s.id === scenarioId) || practicalJournalScenarios[0];
+        const scenario = getJournalScenario(scenarioId);
         const opt = scenario.suggestedButtonOptions[idx] || scenario.suggestedButtonOptions[0];
 
         let sess = userSessionStates.get(from.id);
@@ -1648,7 +1674,7 @@ export async function processTelegramUpdate(token: string, update: any, currentD
       // Evaluate draft voucher (sanad_eval:SCENARIO_ID)
       if (data.startsWith("sanad_eval:")) {
         const scenarioId = data.split(":")[1];
-        const scenario = practicalJournalScenarios.find((s) => s.id === scenarioId) || practicalJournalScenarios[0];
+        const scenario = getJournalScenario(scenarioId);
         const sess = userSessionStates.get(from.id);
         const articles = sess?.draftArticles || [];
 
@@ -1709,7 +1735,7 @@ export async function processTelegramUpdate(token: string, update: any, currentD
       // Show full solution & standard voucher for scenario (sanad_solution:SCENARIO_ID)
       if (data.startsWith("sanad_solution:")) {
         const scenarioId = data.split(":")[1];
-        const scenario = practicalJournalScenarios.find((s) => s.id === scenarioId) || practicalJournalScenarios[0];
+        const scenario = getJournalScenario(scenarioId);
         await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
 
         let solText = `💡 <b>پاسخ استاندارد و سند دوبل سناریو ${scenario.scenarioNumber}: ${scenario.title}</b>\n`;
@@ -1724,10 +1750,11 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         solText += `📖 <b>تحلیل علمی رویداد:</b>\n<blockquote>${scenario.explanation}</blockquote>\n\n`;
         solText += `⚡️ <b>نکته کاربردی استانداردهای حسابداری و قانون تجارت:</b>\n<blockquote>${scenario.standardTip}</blockquote>\n`;
 
+        const pageForThis = Math.ceil(scenario.scenarioNumber / 10);
         const inlineKeyboard = [
           [
             { text: `✍️ تلاش مجدد برای ثبت این سند`, callback_data: `sanad_view:${scenario.id}`, style: "success" },
-            { text: `📚 سایر سناریوهای کارگاه`, callback_data: `sanad_list`, style: "primary" },
+            { text: `📚 سایر سناریوهای کارگاه`, callback_data: `sanad_page:${pageForThis}`, style: "primary" },
           ],
           [
             { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
@@ -2254,8 +2281,8 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         text.includes("بس ");
 
       if ((sess?.mode === "journal_active" || hasJournalKeywords) && text && !text.startsWith("/")) {
-        const activeScenarioId = sess?.scenarioId || practicalJournalScenarios[0].id;
-        const scenario = practicalJournalScenarios.find((s) => s.id === activeScenarioId) || practicalJournalScenarios[0];
+        const activeScenarioId = sess?.scenarioId || "sc-1";
+        const scenario = getJournalScenario(activeScenarioId);
 
         const parsedArticles = parseFreeTextJournalEntry(text, scenario);
         if (parsedArticles.length > 0) {
@@ -2503,16 +2530,17 @@ export async function processTelegramUpdate(token: string, update: any, currentD
       ) {
         const parts = text.split(" ");
         if (parts.length > 1) {
-          const scId = parts[1];
-          const matched = practicalJournalScenarios.find((s) => s.id === scId || String(s.scenarioNumber) === scId);
-          if (matched) {
+          const scIdOrNum = parts[1].trim();
+          const num = parseInt(scIdOrNum.replace("sc-", ""), 10);
+          if (num >= 1 && num <= 90) {
+            const scenario = getJournalScenario(num);
             userSessionStates.set(from.id, {
               mode: "journal_active",
-              scenarioId: matched.id,
+              scenarioId: scenario.id,
               draftArticles: [],
               lastUpdated: Date.now(),
             });
-            const scMsg = formatJournalScenarioMessage(matched.id, user, []);
+            const scMsg = formatJournalScenarioMessage(scenario.id, user, []);
             await callTelegramApi(token, "sendMessage", {
               chat_id: chatId,
               text: scMsg.text,
@@ -2523,7 +2551,7 @@ export async function processTelegramUpdate(token: string, update: any, currentD
           }
         }
 
-        const listMsg = formatJournalListMessage(user);
+        const listMsg = formatJournalListMessage(1, user);
         await callTelegramApi(token, "sendMessage", {
           chat_id: chatId,
           text: listMsg.text,

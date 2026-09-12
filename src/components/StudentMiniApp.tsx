@@ -49,7 +49,6 @@ export const StudentMiniApp: React.FC<StudentMiniAppProps> = ({
   const [selectedQuizId, setSelectedQuizId] = useState<string>(quizzes[0]?.id || "");
   const [userAnswers, setUserAnswers] = useState<Record<string, number>>({});
   const [revealedExplanations, setRevealedExplanations] = useState<Record<string, boolean>>({});
-  const [showJournalForQuiz, setShowJournalForQuiz] = useState<Record<string, boolean>>({});
   const [testResults, setTestResults] = useState<StudentTestResult[]>(() => {
     const saved = localStorage.getItem("student_test_results");
     if (saved) {
@@ -431,64 +430,6 @@ export const StudentMiniApp: React.FC<StudentMiniAppProps> = ({
                     </div>
                   </div>
                 )}
-
-                {/* Journal Entry / سند حسابداری دوبل این مبحث */}
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setShowJournalForQuiz((prev) => ({
-                        ...prev,
-                        [activeQuiz.id]: !prev[activeQuiz.id],
-                      }))
-                    }
-                    className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-teal-950/40 hover:bg-teal-950/70 border border-teal-500/30 text-teal-300 text-xs font-bold transition-all shadow-sm"
-                  >
-                    <div className="flex items-center gap-2">
-                      <FileSpreadsheet className="w-4 h-4 text-teal-400" />
-                      <span>📑 سند حسابداری و ثبت دوبل این مبحث</span>
-                    </div>
-                    <span className="text-[11px] bg-teal-500/20 px-2.5 py-0.5 rounded-full text-teal-200 border border-teal-400/20 font-medium">
-                      {showJournalForQuiz[activeQuiz.id] ? "بستن سند 🔼" : "مشاهده سند دوبل 🔽"}
-                    </span>
-                  </button>
-
-                  {showJournalForQuiz[activeQuiz.id] && (
-                    <div className="mt-2.5 p-4 rounded-xl bg-slate-900/95 border border-teal-500/30 space-y-3 animate-in fade-in duration-200">
-                      <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-2">
-                        <span className="text-xs font-bold text-teal-300 flex items-center gap-1.5">
-                          <span>📜</span>
-                          <span>آرتیکل‌های سند دوبل حسابداری روز {activeQuiz.dayNumber}:</span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setActiveMiniTab("practice")}
-                          className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-bold transition-all shadow-sm"
-                        >
-                          <span>✍️ ثبت دستی در کارگاه سند</span>
-                          <ArrowRight className="w-3 h-3 rotate-180" />
-                        </button>
-                      </div>
-
-                      <div className="bg-slate-950/90 rounded-xl p-3 border border-slate-800/80 text-xs font-mono space-y-2">
-                        <div className="text-slate-400 text-[11px] font-sans pb-1 border-b border-slate-850">
-                          📌 <b>موضوع سند:</b> {activeQuiz.title}
-                        </div>
-                        <div className="text-emerald-400 font-semibold flex items-center justify-between">
-                          <span>بدهکار: حساب اصلی دارایی / هزینه مربوطه</span>
-                          <span className="text-[11px] text-slate-400 font-sans">افزایش دارایی یا وقوع هزینه</span>
-                        </div>
-                        <div className="text-amber-400 font-semibold pr-4 flex items-center justify-between">
-                          <span>بستانکار: حساب بانک / اسناد یا حساب‌های پرداختنی</span>
-                          <span className="text-[11px] text-slate-400 font-sans">کاهش دارایی یا ایجاد تعهد</span>
-                        </div>
-                        <div className="text-slate-400 text-[10px] pt-1.5 border-t border-slate-850 font-sans">
-                          💡 <i>نکته: در سند دوبل، حاصل‌جمع بدهکار و بستانکار باید کاملاً تراز باشد.</i>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
               </div>
             ) : (
               <div className="text-center py-8 text-slate-500 text-xs">
