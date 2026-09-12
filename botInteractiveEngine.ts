@@ -615,17 +615,18 @@ export function formatDailySanadMessage(dayNumber: number, user?: TelegramBotUse
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
 }
 
-// Persistent Reply Keyboard for Telegram Chat Bar (منوی زیر کادر چت با دسترسی آسان به ثبت سند و انتقادات)
+// Persistent Reply Keyboard for Telegram Chat Bar (منوی زیر کادر چت با تفکیک کامل آزمون تشریحی، آزمون تستی و دوره آموزشی)
 export const BOT_PERSISTENT_REPLY_KEYBOARD = {
   keyboard: [
-    [{ text: "📝 آزمون تستی امروز" }, { text: "📑 کارگاه ثبت سند دستی ✍️" }],
-    [{ text: "📚 بانک ۹۰ آزمون دوره" }, { text: "🏆 کارنامه و رتبه من" }],
-    [{ text: "📖 درس و آموزش امروز" }, { text: "📩 انتقاد، پیشنهاد و نظرات" }],
-    [{ text: "🥇 جدول نخبگان" }, { text: "❓ راهنما و دستورات" }],
+    [{ text: "✍️ آزمون تشریحی (ثبت سند) 📑" }, { text: "📝 آزمون تستی ۴ گزینه‌ای 🎯" }],
+    [{ text: "📂 بانک ۹۰ آزمون تشریحی" }, { text: "📚 بانک ۹۰ آزمون تستی" }],
+    [{ text: "📖 دوره آموزش ۹۰ روزه" }, { text: "🏆 کارنامه و رتبه من" }],
+    [{ text: "🥇 جدول رتبه‌بندی نخبگان" }, { text: "📩 انتقاد، پیشنهاد و نظرات" }],
+    [{ text: "🏠 منوی اصلی ربات" }, { text: "❓ راهنما و دستورات" }],
   ],
   resize_keyboard: true,
   is_persistent: false,
-  one_time_keyboard: true,
+  one_time_keyboard: false,
 };
 
 // Return persistent reply keyboard customized for role (shows Admin & Backup buttons for admin)
@@ -633,15 +634,15 @@ export function getPersistentKeyboardForUser(userIdOrChatId: number | string) {
   if (isBotAdmin(userIdOrChatId)) {
     return {
       keyboard: [
-        [{ text: "📝 آزمون تستی امروز" }, { text: "📑 کارگاه ثبت سند دستی ✍️" }],
-        [{ text: "📚 بانک ۹۰ آزمون دوره" }, { text: "🏆 کارنامه و رتبه من" }],
-        [{ text: "📖 درس و آموزش امروز" }, { text: "📩 انتقاد، پیشنهاد و نظرات" }],
+        [{ text: "✍️ آزمون تشریحی (ثبت سند) 📑" }, { text: "📝 آزمون تستی ۴ گزینه‌ای 🎯" }],
+        [{ text: "📂 بانک ۹۰ آزمون تشریحی" }, { text: "📚 بانک ۹۰ آزمون تستی" }],
+        [{ text: "📖 دوره آموزش ۹۰ روزه" }, { text: "🏆 کارنامه و رتبه من" }],
         [{ text: "👑 پنل مدیریت ادمین ⚙️" }, { text: "📦 دریافت آنی بکاپ 💾" }],
-        [{ text: "🏠 منوی اصلی ربات" }, { text: "❓ راهنما و دستورات" }],
+        [{ text: "🏠 منوی اصلی ربات" }, { text: "📩 انتقاد، پیشنهاد و نظرات" }],
       ],
       resize_keyboard: true,
       is_persistent: false,
-      one_time_keyboard: true,
+      one_time_keyboard: false,
     };
   }
   return BOT_PERSISTENT_REPLY_KEYBOARD;
@@ -660,16 +661,17 @@ export async function initializeBotCommands(token: string) {
     // 2. Register bot commands
     await callTelegramApi(token, "setMyCommands", {
       commands: [
-        { command: "start", description: "🏠 منوی اصلی و شروع ربات" },
-        { command: "sanad", description: "📑 کارگاه عملی ثبت سند دستی" },
-        { command: "quiz", description: "📝 آزمون تستی روز جاری" },
-        { command: "bank", description: "📚 بانک ۹۰ آزمون دوره" },
-        { command: "karname", description: "🏆 کارنامه، امتیاز و رتبه من" },
+        { command: "start", description: "🏠 منوی اصلی ربات" },
+        { command: "tashrihi", description: "✍️ آزمون تشریحی و ثبت سند دوبل" },
+        { command: "testi", description: "📝 آزمون تستی ۴ گزینه‌ای" },
+        { command: "sanad", description: "📑 بانک ۹۰ آزمون تشریحی سند" },
+        { command: "quiz", description: "📚 بانک ۹۰ آزمون تستی" },
+        { command: "lesson", description: "📖 دوره آموزش ۹۰ روزه" },
+        { command: "karname", description: "🏆 کارنامه و امتیازات من" },
         { command: "rank", description: "🥇 جدول رتبه‌بندی نخبگان" },
-        { command: "lesson", description: "📖 درس و سرفصل آموزشی امروز" },
-        { command: "feedback", description: "📩 ارسال انتقاد، نظر یا پیشنهاد به ادمین" },
-        { command: "admin", description: "👑 پنل مدیریت و دریافت بکاپ" },
-        { command: "backup", description: "📦 دریافت فایل پشتیبان سیستم" },
+        { command: "feedback", description: "📩 ارتباط و ارسال پیام به ادمین" },
+        { command: "admin", description: "👑 پنل مدیریت ادمین" },
+        { command: "backup", description: "📦 دریافت فایل پشتیبان" },
         { command: "help", description: "❓ راهنما و دستورات" },
       ],
     });
@@ -839,15 +841,15 @@ export function formatLeaderboardMessage(currentUserId: number) {
 // Format Main Welcome Menu
 export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: string) {
   let text = `👋 سلام <b>${user.firstName}</b> عزیز،\n`;
-  text += `به <b>سامانه جامع آموزش، آزمون و کارگاه ثبت سند حسابداری ایران</b> خوش آمدید! 🇮🇷✨\n\n`;
-  text += `📌 <b>بخش‌های تخصصی و مجزای سامانه:</b>\n`;
-  text += `۱️⃣ <b>📝 بانک ۹۰ آزمون تستی ۴ گزینه‌ای:</b> سوالات مفهومی استانداردها و قوانین مالیاتی با کلید تصادفی\n`;
-  text += `۲️⃣ <b>📑 کارگاه ۹۰ آزمون ثبت سند دستی (دوبل):</b> سناریوهای واقعی از اسناد ساده تا پیشرفته شرکتی (چک، حقوق، وام، مالیات و بستن حساب‌ها)\n`;
-  text += `۳️⃣ <b>🏆 کارنامه، امتیاز و رتبه‌بندی نخبگان:</b> ثبت هوشمند نمرات و سطح تسلط شما\n`;
-  text += `۴️⃣ <b>📩 صندوق انتقادات و پیشنهادات:</b> ارتباط مستقیم با مدیریت کانال\n\n`;
+  text += `به <b>سامانه جامع آموزش و آزمون‌های حسابداری ایران</b> خوش آمدید! 🇮🇷✨\n\n`;
+  text += `📌 <b>بخش‌های کاملاً مجزا و تفکیک‌شده سامانه:</b>\n`;
+  text += `۱️⃣ <b>✍️ آزمون‌های تشریحی (ثبت سند دوبل):</b> بانک ۹۰ سناریوی واقعی بازار کار با صدور دستی سند، تراز و ارزیابی هوشمند\n`;
+  text += `۲️⃣ <b>📝 آزمون‌های تستی ۴ گزینه‌ای:</b> ۹۰ آزمون تستی استانداردها و قوانین مالیاتی با کلید تصادفی\n`;
+  text += `۳️⃣ <b>📖 دوره آموزش و سرفصل‌های ۹۰ روزه:</b> آموزش گام‌به‌گام و نکات کلیدی روزانه\n`;
+  text += `۴️⃣ <b>🏆 کارنامه و رتبه‌بندی نخبگان:</b> محاسبه امتیازات و سنجش تسلط شما\n\n`;
   text += `⭐️ <b>امتیاز کل شما:</b> ${user.totalScore} امتیاز | 🎯 <b>تست‌های حل‌شده:</b> ${user.correctCount} از ${user.totalAnswered}\n\n`;
   if (channelSignature) text += `${channelSignature}\n\n`;
-  text += `👇 <b>لطفاً بخش مورد نظر خود را انتخاب فرمایید:</b>`;
+  text += `👇 <b>لطفاً بخش مورد نظر خود را با لمس دکمه‌های زیر انتخاب فرمایید:</b>`;
 
   const inlineKeyboard: any[][] = [];
 
@@ -859,23 +861,25 @@ export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: 
 
   inlineKeyboard.push(
     [
-      { text: `📝 🟢 شروع آزمون تستی امروز 🎯`, callback_data: `q_today`, style: "success" },
-      { text: `📑 🟢 کارگاه ثبت سند دستی ✍️`, callback_data: `sanad_page:1`, style: "success" },
+      { text: `✍️ 🟢 آزمون تشریحی (ثبت سند حسابداری) 📑 🟢`, callback_data: `sanad_page:1`, style: "success" },
     ],
     [
-      { text: `📚 🔵 بانک ۹۰ آزمون تستی ⚡️`, callback_data: `q_page:1`, style: "primary" },
-      { text: `📂 🔵 بانک ۹۰ سناریوی سند 📜`, callback_data: `sanad_page:1`, style: "primary" },
+      { text: `📝 🟢 آزمون تستی ۴ گزینه‌ای 🎯 🟢`, callback_data: `q_today`, style: "success" },
     ],
     [
-      { text: `🏆 🟡 کارنامه و سوابق من ⭐️`, callback_data: `my_stats`, style: "success" },
-      { text: `🥇 🟣 جدول نخبگان و رتبه‌بندی 💎`, callback_data: `leaderboard`, style: "primary" },
+      { text: `📂 بانک ۹۰ آزمون تشریحی سند`, callback_data: `sanad_page:1`, style: "primary" },
+      { text: `📚 بانک ۹۰ آزمون تستی`, callback_data: `q_page:1`, style: "primary" },
     ],
     [
-      { text: `📖 🟠 درس و آموزش امروز ☀️`, callback_data: `q_lesson_today`, style: "primary" },
-      { text: `📩 🟣 انتقاد، پیشنهاد و نظرات 💬`, callback_data: `feedback_start`, style: "primary" },
+      { text: `📖 دوره آموزش ۹۰ روزه ☀️`, callback_data: `q_lesson_today`, style: "primary" },
+      { text: `🏆 کارنامه و سوابق من ⭐️`, callback_data: `my_stats`, style: "success" },
     ],
     [
-      { text: `💡 🔵 راهنمای دستورات ربات ❓`, callback_data: `help_cmd`, style: "primary" },
+      { text: `🥇 جدول رتبه‌بندی نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
+      { text: `📩 انتقاد، پیشنهاد و نظرات 💬`, callback_data: `feedback_start`, style: "primary" },
+    ],
+    [
+      { text: `💡 راهنما و دستورات ربات ❓`, callback_data: `help_cmd`, style: "primary" },
     ]
   );
 
@@ -2517,16 +2521,29 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         return;
       }
 
-      // Handle /sanad or "📑 کارگاه ثبت سند دستی ✍️"
+      // Handle /tashrihi or /sanad or "✍️ آزمون تشریحی (ثبت سند) 📑"
       if (
         text.startsWith("/sanad") ||
+        text.startsWith("/tashrihi") ||
+        text === "✍️ آزمون تشریحی (ثبت سند) 📑" ||
+        text === "✍️ آزمون تشریحی (ثبت سند)" ||
+        text === "آزمون تشریحی" ||
+        text === "آزمون تشریحی (ثبت سند)" ||
+        text === "آزمون تشریحی سند" ||
+        text === "ثبت سند" ||
+        text === "سند دوبل" ||
+        text === "سند حسابداری" ||
+        text === "📂 بانک ۹۰ آزمون تشریحی" ||
+        text === "📂 بانک ۹۰ سناریوی سند" ||
+        text === "📑 کارگاه ۹۰ سند دستی ✍️" ||
         text === "📑 کارگاه ثبت سند دستی ✍️" ||
         text === "کارگاه ثبت سند دستی" ||
         text === "ثبت سند دستی" ||
-        text === "ثبت سند" ||
         text === "سند دستی" ||
         text === "کارگاه سند" ||
-        text === "سند"
+        text === "کارگاه ۹۰ سند" ||
+        text === "سند" ||
+        text === "کارگاه"
       ) {
         const parts = text.split(" ");
         if (parts.length > 1) {
@@ -2590,11 +2607,18 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         return;
       }
 
-      // Handle /quiz or "📝 آزمون تستی امروز" or similar
+      // Handle /quiz or /testi or "📝 آزمون تستی ۴ گزینه‌ای 🎯"
       if (
         text === "/quiz" ||
+        text === "/testi" ||
         text === "/azmoon" ||
         text === "/test" ||
+        text === "📝 آزمون تستی ۴ گزینه‌ای 🎯" ||
+        text === "📝 آزمون تستی ۴ گزینه‌ای" ||
+        text === "آزمون تستی ۴ گزینه‌ای" ||
+        text === "آزمون تستی" ||
+        text === "تستی" ||
+        text === "📝 آزمون تستی امروز 🎯" ||
         text === "📝 آزمون تستی امروز" ||
         text === "آزمون تستی امروز" ||
         text === "آزمون امروز" ||
@@ -2611,11 +2635,13 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         return;
       }
 
-      // Handle /bank or "📚 بانک ۹۰ آزمون دوره"
+      // Handle /bank or "📚 بانک ۹۰ آزمون تستی"
       if (
         text === "/bank" ||
         text === "/allquizzes" ||
+        text === "📚 بانک ۹۰ آزمون تستی" ||
         text === "📚 بانک ۹۰ آزمون دوره" ||
+        text === "بانک ۹۰ آزمون تستی" ||
         text === "بانک ۹۰ آزمون" ||
         text === "بانک آزمون" ||
         text === "بانک"
@@ -2626,6 +2652,30 @@ export async function processTelegramUpdate(token: string, update: any, currentD
           text: pageMsg.text,
           parse_mode: "HTML",
           reply_markup: pageMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Handle /lesson or /doreh or "📖 دوره آموزش ۹۰ روزه"
+      if (
+        text === "/lesson" ||
+        text === "/doreh" ||
+        text === "/amoozesh" ||
+        text === "📖 دوره آموزش ۹۰ روزه" ||
+        text === "دوره آموزش ۹۰ روزه" ||
+        text === "دوره آموزش" ||
+        text === "آموزش ۹۰ روزه" ||
+        text === "📖 درس و آموزش امروز" ||
+        text === "درس و آموزش امروز" ||
+        text === "آموزش امروز" ||
+        text === "درس امروز"
+      ) {
+        const lessonMsg = formatLessonMessage(currentDayNumber);
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: lessonMsg.text,
+          parse_mode: "HTML",
+          reply_markup: lessonMsg.reply_markup,
         });
         return;
       }
