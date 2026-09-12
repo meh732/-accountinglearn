@@ -470,6 +470,7 @@ export function resetAllBotUsers() {
 export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
   const dayItem = getOrCreateDayItem(dayNumber, initialThreeMonthCurriculum);
   const eveningPost = dayItem.posts.find((p) => p.slotTitle.includes("شب") || p.quizQuestion) || dayItem.posts[2];
+  const noonPost = dayItem.posts.find((p) => p.slotTitle.includes("ظهر") || p.practicalExample) || dayItem.posts[1];
 
   const question = eveningPost?.quizQuestion || "سوال آزمون روز یافت نشد.";
   const options = eveningPost?.quizOptions || ["گزینه ۱", "گزینه ۲", "گزینه ۳", "گزینه ۴"];
@@ -505,12 +506,15 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
     if (eveningPost?.explanation) {
       text += `💡 <b>تحلیل تشریحی و استناد قانونی:</b>\n<blockquote>${eveningPost.explanation}</blockquote>\n`;
     }
+    if (noonPost?.practicalExample) {
+      text += `\n📑 <b>سند حسابداری و آرتیکل دوبل این مبحث:</b>\n<blockquote>${noonPost.practicalExample}</blockquote>\n`;
+    }
     text += `\n⭐️ <b>امتیاز کل شما:</b> ${user?.totalScore || 0} | 📊 <b>آزمون‌های حل‌شده:</b> ${user?.correctCount || 0} از ${user?.totalAnswered || 0}`;
   } else {
     text += `\n👇 <b>لطفاً یکی از گزینه‌های شیشه‌ای زیر را لمس کنید:</b>`;
   }
 
-  // Inline Keyboard Buttons (دکمه‌های شیشه‌ای رنگی با دکمه‌های گزینه‌ای استاندارد و بدون افشای پاسخ قبل از کلیک)
+  // Inline Keyboard Buttons
   const inlineKeyboard: any[][] = [];
 
   if (!userAnswer) {
@@ -523,8 +527,16 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
       { text: `3️⃣ گزینه ۳`, callback_data: `q_ans:${dayNumber}:2`, style: "primary" },
       { text: `4️⃣ گزینه ۴`, callback_data: `q_ans:${dayNumber}:3`, style: "primary" },
     ]);
+    // Dedicated Button for Accounting Journal Entry right inside the Quiz
+    inlineKeyboard.push([
+      { text: `📜 سند حسابداری دوبل روز ${dayNumber} 📑`, callback_data: `q_sanad:${dayNumber}`, style: "success" },
+    ]);
   } else {
-    // Nav buttons after answering
+    // Buttons after answering
+    inlineKeyboard.push([
+      { text: `📜 مشاهده کامل سند حسابداری این روز 📑`, callback_data: `q_sanad:${dayNumber}`, style: "success" },
+    ]);
+
     const navRow = [];
     if (dayNumber > 1) {
       navRow.push({ text: `⬅️ روز قبلی (${dayNumber - 1})`, callback_data: `q_show:${dayNumber - 1}`, style: "primary" });
@@ -542,12 +554,67 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
 
   // Utility row with rich icons and background styles
   inlineKeyboard.push([
-    { text: `📑 کارگاه ثبت سند دستی ✍️`, callback_data: `sanad_list`, style: "success" },
+    { text: `✍️ کارگاه ثبت سند دستی 📑`, callback_data: `sanad_list`, style: "success" },
     { text: `🏆 کارنامه و رتبه من ⭐️`, callback_data: `my_stats`, style: "success" },
   ]);
   inlineKeyboard.push([
     { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
     { text: `🥇 جدول نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
+  ]);
+  inlineKeyboard.push([
+    { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
+  ]);
+
+  return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+}
+
+// Format Daily Journal Entry & Accounting Voucher Message (سند حسابداری روزانه)
+export function formatDailySanadMessage(dayNumber: number, user?: TelegramBotUser) {
+  const dayItem = getOrCreateDayItem(dayNumber, initialThreeMonthCurriculum);
+  const noonPost = dayItem.posts.find((p) => p.slotTitle.includes("ظهر") || p.practicalExample) || dayItem.posts[1];
+  const morningPost = dayItem.posts[0];
+
+  let text = `📑 <b>سند حسابداری و ثبت دوبل استاندارد (روز شماره ${dayNumber})</b>\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `📚 <b>سرفصل آموزشی:</b> ${dayItem.title}\n`;
+  text += `🏷 <b>دسته:</b> ${dayItem.category || "حسابداری و مالیات"}\n\n`;
+
+  text += `📖 <b>شرح رویداد مالی و سناریوی بازار کار:</b>\n<blockquote>${noonPost?.content || dayItem.summary}</blockquote>\n\n`;
+
+  if (noonPost?.practicalExample) {
+    text += `📜 <b>ثبت سند حسابداری دوبل در دفاتر قانونی:</b>\n<blockquote>${noonPost.practicalExample}</blockquote>\n\n`;
+  }
+
+  if (morningPost?.keyRule) {
+    text += `💡 <b>نکته طلایی و استاندارد مربوطه:</b>\n<blockquote>${morningPost.keyRule}</blockquote>\n\n`;
+  }
+
+  text += `👇 برای سنجش یادگیری خود، در آزمون تستی همین روز شرکت کنید یا وارد کارگاه عملی شوید:`;
+
+  const inlineKeyboard: any[][] = [];
+
+  // Direct action buttons
+  inlineKeyboard.push([
+    { text: `📝 شرکت در آزمون تستی روز ${dayNumber} 🎯`, callback_data: `q_show:${dayNumber}`, style: "success" },
+  ]);
+  inlineKeyboard.push([
+    { text: `✍️ کارگاه عملی ۱۰ سناریوی ثبت سند 📑`, callback_data: `sanad_list`, style: "success" },
+    { text: `📖 مطالعه کامل درس روز ${dayNumber} ☀️`, callback_data: `q_lesson:${dayNumber}`, style: "primary" },
+  ]);
+
+  // Sanad navigation row
+  const navRow: any[] = [];
+  if (dayNumber > 1) {
+    navRow.push({ text: `⬅️ سند روز ${dayNumber - 1}`, callback_data: `q_sanad:${dayNumber - 1}`, style: "primary" });
+  }
+  if (dayNumber < 90) {
+    navRow.push({ text: `سند روز ${dayNumber + 1} ➡️`, callback_data: `q_sanad:${dayNumber + 1}`, style: "primary" });
+  }
+  if (navRow.length > 0) inlineKeyboard.push(navRow);
+
+  inlineKeyboard.push([
+    { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
+    { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
   ]);
   inlineKeyboard.push([
     { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
@@ -1781,6 +1848,21 @@ export async function processTelegramUpdate(token: string, update: any, currentD
           text: lessonMsg.text,
           parse_mode: "HTML",
           reply_markup: lessonMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Show daily accounting journal entry & voucher (q_sanad:DAY)
+      if (data.startsWith("q_sanad:")) {
+        const day = parseInt(data.split(":")[1], 10) || 1;
+        await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
+        const sanadMsg = formatDailySanadMessage(day, user);
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: sanadMsg.text,
+          parse_mode: "HTML",
+          reply_markup: sanadMsg.reply_markup,
         });
         return;
       }
