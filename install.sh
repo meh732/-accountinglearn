@@ -1202,17 +1202,39 @@ diagnose_telegram_and_channel() {
                     echo ""
                     prompt_user "Would you like to send a LIVE TEST POST to ${probe_ch} right now? [y/N]: " send_test "N"
                     if [[ "$send_test" =~ ^[Yy]$ ]]; then
-                        log_info "Sending formatted test post to ${probe_ch}..."
-                        local test_text="🎉 <b>تست موفقیت‌آمیز ارتباط ربات با کانال حسابداری ایران</b>%0A%0A✅ سیستم ارسال خودکار محتوای آموزشی با موفقیت به این کانال متصل گردید.%0A⏰ زمان تست: $(date +"%Y-%m-%d %H:%M:%S")%0A%0A📢 <i>پست‌های دوره طبق برنامه زمان‌بندی روزانه منتشر خواهند شد.</i>"
+                        local target_dest="${ch_id:-$probe_ch}"
+                        log_info "Sending formatted test post to ${target_dest} (${ch_title:-Channel})..."
+                        local test_text="🎉 <b>تست موفقیت‌آمیز ارتباط ربات با کانال آموزش حسابداری</b>\n\n✅ سیستم ارسال خودکار محتوای آموزشی با موفقیت به این کانال متصل گردید.\n⏰ زمان تست: $(date +"%Y-%m-%d %H:%M:%S")\n\n📢 <i>پست‌های دوره طبق برنامه زمان‌بندی روزانه منتشر خواهند شد.</i>"
+                        
+                        local send_payload
+                        send_payload=$(printf '{"chat_id":"%s","text":"%s","parse_mode":"HTML"}' "${target_dest}" "${test_text}")
+
                         local send_res
-                        send_res=$(curl -s -m 15 "https://api.telegram.org/bot${tg_token}/sendMessage?chat_id=${probe_ch}&text=${test_text}&parse_mode=HTML" 2>&1 || echo "")
+                        send_res=$(curl -s -m 15 -X POST "https://api.telegram.org/bot${tg_token}/sendMessage" \
+                            -H "Content-Type: application/json" \
+                            -d "${send_payload}" 2>&1 || echo "")
+
                         if echo "$send_res" | grep -q '"ok":true'; then
-                            log_success "LIVE TEST POST PUBLISHED SUCCESSFULLY to ${probe_ch}!"
+                            log_success "LIVE TEST POST PUBLISHED SUCCESSFULLY to ${target_dest}!"
                             echo -e "   👉 Check your channel now to see the post!"
                         else
-                            local err_desc
-                            err_desc=$(echo "$send_res" | grep -o '"description":"[^"]*' | head -n1 | cut -d'"' -f4 || echo "$send_res")
-                            log_error "Failed to publish test post: ${err_desc}"
+                            # Fallback attempt with probe_ch if target_dest was ch_id
+                            if [ "$target_dest" != "$probe_ch" ]; then
+                                send_payload=$(printf '{"chat_id":"%s","text":"%s","parse_mode":"HTML"}' "${probe_ch}" "${test_text}")
+                                send_res=$(curl -s -m 15 -X POST "https://api.telegram.org/bot${tg_token}/sendMessage" \
+                                    -H "Content-Type: application/json" \
+                                    -d "${send_payload}" 2>&1 || echo "")
+                            fi
+
+                            if echo "$send_res" | grep -q '"ok":true'; then
+                                log_success "LIVE TEST POST PUBLISHED SUCCESSFULLY to ${probe_ch}!"
+                                echo -e "   👉 Check your channel now to see the post!"
+                            else
+                                local err_desc
+                                err_desc=$(echo "$send_res" | grep -o '"description":"[^"]*' | head -n1 | cut -d'"' -f4 || echo "$send_res")
+                                log_error "Failed to publish test post: ${err_desc}"
+                                echo -e "   ${YELLOW}Telegram Response: ${send_res}${NC}"
+                            fi
                         fi
                     fi
                 else
