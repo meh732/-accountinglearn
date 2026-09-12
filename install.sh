@@ -274,6 +274,74 @@ create_and_send_backup() {
 }
 
 # ==============================================================================
+# System Backup Restoration (Archive / JSON / Persistent Mirror)
+# ==============================================================================
+restore_system_backup() {
+    print_banner
+    check_root
+    log_info "Starting System Backup Restoration..."
+
+    echo -e "${CYAN}Choose restoration source:${NC}"
+    echo -e " ${GREEN}1)${NC} Restore from persistent storage mirror (data_persistence/)"
+    echo -e " ${GREEN}2)${NC} Restore from latest tar.gz archive in backups/"
+    echo -e " ${GREEN}3)${NC} Restore from a specific JSON or tar.gz file path"
+    echo -e " ${RED}0)${NC} Cancel"
+    echo ""
+    prompt_user "Select an option [0-3]: " r_choice "1"
+
+    case "$r_choice" in
+        1)
+            log_info "Restoring from data_persistence/ ..."
+            if [ -d "${APP_DIR}/data_persistence" ]; then
+                [ -f "${APP_DIR}/data_persistence/bot-config.json" ] && cp -f "${APP_DIR}/data_persistence/bot-config.json" "${APP_DIR}/bot-config.json"
+                [ -f "${APP_DIR}/data_persistence/users-quiz-data.json" ] && cp -f "${APP_DIR}/data_persistence/users-quiz-data.json" "${APP_DIR}/users-quiz-data.json"
+                [ -f "${APP_DIR}/data_persistence/scheduler-state.json" ] && cp -f "${APP_DIR}/data_persistence/scheduler-state.json" "${APP_DIR}/scheduler-state.json"
+                [ -f "${APP_DIR}/data_persistence/.env" ] && cp -f "${APP_DIR}/data_persistence/.env" "${APP_DIR}/.env"
+                log_success "All configuration, scheduler state, and users database restored from data_persistence/!"
+            else
+                log_warning "data_persistence/ folder not found."
+            fi
+            ;;
+        2)
+            local latest_tar
+            latest_tar=$(ls -t "${BACKUP_DIR}"/*.tar.gz 2>/dev/null | head -n1 || true)
+            if [ -n "${latest_tar}" ] && [ -f "${latest_tar}" ]; then
+                log_info "Found archive: ${latest_tar}"
+                tar -xzf "${latest_tar}" -C "${APP_DIR}"
+                log_success "Archive extracted and restored successfully!"
+            else
+                log_error "No backup archive found in ${BACKUP_DIR}."
+            fi
+            ;;
+        3)
+            prompt_user "Enter the absolute path to your backup file (.json or .tar.gz): " custom_file ""
+            if [ -f "${custom_file}" ]; then
+                if [[ "${custom_file}" == *.json ]]; then
+                    if grep -q "users" "${custom_file}"; then
+                        cp -f "${custom_file}" "${APP_DIR}/users-quiz-data.json"
+                        mkdir -p "${APP_DIR}/data_persistence"
+                        cp -f "${custom_file}" "${APP_DIR}/data_persistence/users-quiz-data.json"
+                        log_success "Restored users quiz database from ${custom_file}!"
+                    fi
+                elif [[ "${custom_file}" == *.tar.gz ]]; then
+                    tar -xzf "${custom_file}" -C "${APP_DIR}"
+                    log_success "Archive extracted and restored successfully!"
+                fi
+            else
+                log_error "File not found: ${custom_file}"
+            fi
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+
+    log_info "Restarting service to load restored data..."
+    run_as_root systemctl restart "${SERVICE_NAME}" 2>/dev/null || true
+    log_success "Restoration process completed!"
+}
+
+# ==============================================================================
 # Main Administrator & Bot Credentials Configuration
 # ==============================================================================
 configure_bot_and_admin() {
@@ -562,7 +630,35 @@ do_update() {
     # 2. Pull Git updates if repo exists
     if [ -d "${APP_DIR}/.git" ]; then
         log_info "Pulling latest code from GitHub..."
-        git pull || log_warning "Git pull encountered minor warnings, proceeding..."
+        # Backup user config files safely
+        cp -f "${APP_DIR}/.env" "${APP_DIR}/.env.bak" 2>/dev/null || true
+        cp -f "${APP_DIR}/bot-config.json" "${APP_DIR}/bot-config.json.bak" 2>/dev/null || true
+        cp -f "${APP_DIR}/users-quiz-data.json" "${APP_DIR}/users-quiz-data.json.bak" 2>/dev/null || true
+        cp -f "${APP_DIR}/scheduler-state.json" "${APP_DIR}/scheduler-state.json.bak" 2>/dev/null || true
+
+        # Mirror to data_persistence before pulling updates
+        mkdir -p "${APP_DIR}/data_persistence" 2>/dev/null || true
+        [ -f "${APP_DIR}/users-quiz-data.json" ] && cp -f "${APP_DIR}/users-quiz-data.json" "${APP_DIR}/data_persistence/users-quiz-data.json" 2>/dev/null || true
+        [ -f "${APP_DIR}/bot-config.json" ] && cp -f "${APP_DIR}/bot-config.json" "${APP_DIR}/data_persistence/bot-config.json" 2>/dev/null || true
+        [ -f "${APP_DIR}/scheduler-state.json" ] && cp -f "${APP_DIR}/scheduler-state.json" "${APP_DIR}/data_persistence/scheduler-state.json" 2>/dev/null || true
+        [ -f "${APP_DIR}/.env" ] && cp -f "${APP_DIR}/.env" "${APP_DIR}/data_persistence/.env" 2>/dev/null || true
+
+        git stash 2>/dev/null || true
+        git pull origin main || git pull origin master || git pull || true
+        git stash pop 2>/dev/null || true
+
+        # Restore user configs and databases
+        [ -f "${APP_DIR}/.env.bak" ] && cp -f "${APP_DIR}/.env.bak" "${APP_DIR}/.env"
+        [ -f "${APP_DIR}/bot-config.json.bak" ] && cp -f "${APP_DIR}/bot-config.json.bak" "${APP_DIR}/bot-config.json"
+        [ -f "${APP_DIR}/users-quiz-data.json.bak" ] && cp -f "${APP_DIR}/users-quiz-data.json.bak" "${APP_DIR}/users-quiz-data.json"
+        [ -f "${APP_DIR}/scheduler-state.json.bak" ] && cp -f "${APP_DIR}/scheduler-state.json.bak" "${APP_DIR}/scheduler-state.json"
+
+        # Auto-recover from data_persistence if any file is missing
+        [ ! -f "${APP_DIR}/users-quiz-data.json" ] && [ -f "${APP_DIR}/data_persistence/users-quiz-data.json" ] && cp -f "${APP_DIR}/data_persistence/users-quiz-data.json" "${APP_DIR}/users-quiz-data.json"
+        [ ! -f "${APP_DIR}/bot-config.json" ] && [ -f "${APP_DIR}/data_persistence/bot-config.json" ] && cp -f "${APP_DIR}/data_persistence/bot-config.json" "${APP_DIR}/bot-config.json"
+        [ ! -f "${APP_DIR}/scheduler-state.json" ] && [ -f "${APP_DIR}/data_persistence/scheduler-state.json" ] && cp -f "${APP_DIR}/data_persistence/scheduler-state.json" "${APP_DIR}/scheduler-state.json"
+
+        rm -f "${APP_DIR}/.env.bak" "${APP_DIR}/bot-config.json.bak" "${APP_DIR}/users-quiz-data.json.bak" "${APP_DIR}/scheduler-state.json.bak"
     else
         log_info "Cloning latest release..."
         run_as_root git clone "${REPO_URL}" "${INSTALL_DIR}_tmp"
@@ -729,14 +825,22 @@ manage_scheduler_cli() {
     current_port="${current_port:-3000}"
 
     local status_json
-    status_json=$(curl -s "http://127.0.0.1:${current_port}/api/scheduler/status" 2>/dev/null || echo "")
+    status_json=$(curl -s -m 5 "http://127.0.0.1:${current_port}/api/scheduler/status" 2>/dev/null || echo "")
 
-    if [ -n "$status_json" ]; then
+    if echo "$status_json" | grep -q '"ok":true'; then
         echo -e " ${GREEN}● Auto-Pilot Scheduler API Connected${NC}"
         echo -e " ${status_json}" | grep -o '"tehranTimeNow":"[^"]*"' | sed 's/"//g' | sed 's/tehranTimeNow:/ Tehran Time: /' || true
         echo -e " ${status_json}" | grep -o '"currentDayNumber":[0-9]*' | sed 's/currentDayNumber:/ Course Day: Day /' || true
+        local tg_conn=$(echo "$status_json" | grep -o '"hasTelegramToken":true' || true)
+        local tg_ch=$(echo "$status_json" | grep -o '"hasTelegramChannel":true' || true)
+        if [ -n "$tg_conn" ] && [ -n "$tg_ch" ]; then
+            echo -e " ✈️  Telegram Channel: ${GREEN}Configured${NC}"
+        else
+            echo -e " ✈️  Telegram Channel: ${YELLOW}Not fully configured (Check menu option 18)${NC}"
+        fi
     else
-        echo -e " ${YELLOW}Service is not running or port ${current_port} is not responding.${NC}"
+        echo -e " ${YELLOW}⚠️ Backend service is not responding or running an older build without the Auto-Pilot scheduler endpoints.${NC}"
+        echo -e " ${CYAN}👉 Run option 19 in the main menu (Rebuild & Restart) to activate the latest code.${NC}"
     fi
 
     echo ""
@@ -745,30 +849,321 @@ manage_scheduler_cli() {
     echo -e " 2) Force Trigger Noon Post (14:30 - Workshop/News) Now"
     echo -e " 3) Force Trigger Evening Post (20:00 - Quiz Test) Now"
     echo -e " 4) Force Trigger Late-Night Post (22:30 - Fun & Memes) Now"
+    echo -e " 5) 🔍 Run Comprehensive Telegram & Channel Diagnostics"
     echo -e " 0) Back to main menu"
     echo ""
-    prompt_user "Select option [0-4]: " sched_choice "0"
+    prompt_user "Select option [0-5]: " sched_choice "0"
 
     case "$sched_choice" in
-        1)
-            log_info "Triggering Morning Post..."
-            curl -s -X POST "http://127.0.0.1:${current_port}/api/scheduler/trigger-now" -H "Content-Type: application/json" -d '{"slot":"morning"}' | grep -o '"ok":true' && log_success "Morning post sent!" || log_error "Failed to send"
+        1|2|3|4)
+            local slot_name="morning"
+            [ "$sched_choice" = "2" ] && slot_name="noon"
+            [ "$sched_choice" = "3" ] && slot_name="evening"
+            [ "$sched_choice" = "4" ] && slot_name="late_night"
+
+            log_info "Triggering ${slot_name} Post via API..."
+            local raw_res
+            raw_res=$(curl -s -m 20 -X POST "http://127.0.0.1:${current_port}/api/scheduler/trigger-now" \
+                -H "Content-Type: application/json" \
+                -d "{\"slot\":\"${slot_name}\"}" 2>&1 || echo "curl_failed")
+
+            if [ "$raw_res" = "curl_failed" ] || [ -z "$raw_res" ]; then
+                log_error "Failed to connect to backend service on port ${current_port}."
+                echo -e "${YELLOW}👉 Make sure the service is running: systemctl status ${SERVICE_NAME}${NC}"
+            elif echo "$raw_res" | grep -q '"ok":true'; then
+                log_success "${slot_name} trigger executed by backend engine!"
+                echo ""
+                local post_title
+                post_title=$(echo "$raw_res" | grep -o '"title":"[^"]*' | head -n1 | cut -d'"' -f4 || echo "Post")
+                echo -e "   📌 Title: ${CYAN}${post_title}${NC}"
+
+                # Parse Telegram status
+                if echo "$raw_res" | grep -q '"telegramStatus":{[^}]*"ok":true'; then
+                    local is_sim=$(echo "$raw_res" | grep -o '"telegramStatus":{[^}]*"simulated":true' || true)
+                    if [ -n "$is_sim" ]; then
+                        echo -e "   ✈️  Telegram: ${YELLOW}⚠️ Simulated Mode (Token or Channel not set in .env)${NC}"
+                    else
+                        local msg_id
+                        msg_id=$(echo "$raw_res" | grep -o '"telegramStatus":{[^}]*"messageId":[0-9]*' | grep -o '[0-9]*$' || echo "OK")
+                        echo -e "   ✈️  Telegram: ${GREEN}✅ Sent Successfully to Channel (Message ID: ${msg_id})${NC}"
+                    fi
+                else
+                    local tg_err
+                    tg_err=$(echo "$raw_res" | grep -o '"telegramStatus":{[^}]*"error":"[^"]*' | head -n1 | cut -d'"' -f6 || echo "Unknown error")
+                    echo -e "   ✈️  Telegram: ${RED}❌ Error: ${tg_err}${NC}"
+                    echo -e "       ${YELLOW}👉 Run option 18 (Diagnostics) to test permissions and auto-fix!${NC}"
+                fi
+
+                # Parse Bale status
+                if echo "$raw_res" | grep -q '"baleStatus":{[^}]*"ok":true'; then
+                    local is_bale_sim=$(echo "$raw_res" | grep -o '"baleStatus":{[^}]*"simulated":true' || true)
+                    if [ -z "$is_bale_sim" ]; then
+                        echo -e "   🌀 Bale: ${GREEN}✅ Sent Successfully to Channel${NC}"
+                    fi
+                else
+                    local bale_err
+                    bale_err=$(echo "$raw_res" | grep -o '"baleStatus":{[^}]*"error":"[^"]*' | head -n1 | cut -d'"' -f6 || echo "")
+                    if [ -n "$bale_err" ]; then
+                        echo -e "   🌀 Bale: ${RED}❌ Error: ${bale_err}${NC}"
+                    fi
+                fi
+            else
+                log_error "Server returned error response:"
+                echo -e "${RED}${raw_res}${NC}"
+                if echo "$raw_res" | grep -q "Cannot POST /api/scheduler/trigger-now"; then
+                    echo ""
+                    echo -e "${YELLOW}🚨 ROOT CAUSE: The running server process has NOT been rebuilt with the new features!${NC}"
+                    echo -e "   Run Option 19 in the main menu or run:"
+                    echo -e "   ${CYAN}cd ${APP_DIR} && npm run build && systemctl restart ${SERVICE_NAME}${NC}"
+                fi
+            fi
             ;;
-        2)
-            log_info "Triggering Noon Post..."
-            curl -s -X POST "http://127.0.0.1:${current_port}/api/scheduler/trigger-now" -H "Content-Type: application/json" -d '{"slot":"noon"}' | grep -o '"ok":true' && log_success "Noon post sent!" || log_error "Failed to send"
-            ;;
-        3)
-            log_info "Triggering Evening Post..."
-            curl -s -X POST "http://127.0.0.1:${current_port}/api/scheduler/trigger-now" -H "Content-Type: application/json" -d '{"slot":"evening"}' | grep -o '"ok":true' && log_success "Evening post sent!" || log_error "Failed to send"
-            ;;
-        4)
-            log_info "Triggering Late-Night Post..."
-            curl -s -X POST "http://127.0.0.1:${current_port}/api/scheduler/trigger-now" -H "Content-Type: application/json" -d '{"slot":"late_night"}' | grep -o '"ok":true' && log_success "Late-night post sent!" || log_error "Failed to send"
+        5)
+            diagnose_telegram_and_channel
+            return
             ;;
         *)
             ;;
     esac
+    read -p "Press Enter to return to menu..." -r
+}
+
+diagnose_telegram_and_channel() {
+    print_banner
+    echo -e "${CYAN}${BOLD}=== 🔍 Comprehensive Telegram & Bale Diagnostics ===${NC}"
+    echo -e "${CYAN}This tool checks Telegram API connectivity, validates your bot token,${NC}"
+    echo -e "${CYAN}checks channel permissions, and registers the Telegram Bot Menu.${NC}"
+    echo "=================================================================="
+    echo ""
+
+    local tg_token=""
+    local tg_channel=""
+    local tg_admin=""
+    local bale_token=""
+    local bale_channel=""
+
+    # Read from .env first
+    if [ -f "${APP_DIR}/.env" ]; then
+        tg_token=$(grep -E "^TELEGRAM_BOT_TOKEN=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
+        tg_channel=$(grep -E "^TELEGRAM_CHANNEL_ID=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
+        tg_admin=$(grep -E "^TELEGRAM_ADMIN_CHAT_ID=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
+        bale_token=$(grep -E "^BALE_BOT_TOKEN=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
+        bale_channel=$(grep -E "^BALE_CHANNEL_ID=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
+    fi
+
+    # Fallback from bot-config.json
+    if [ -z "$tg_token" ] && [ -f "${APP_DIR}/bot-config.json" ]; then
+        tg_token=$(grep -o '"telegramToken":"[^"]*' "${APP_DIR}/bot-config.json" | head -n1 | cut -d'"' -f4 || true)
+    fi
+    if [ -z "$tg_channel" ] && [ -f "${APP_DIR}/bot-config.json" ]; then
+        tg_channel=$(grep -o '"telegramChannel":"[^"]*' "${APP_DIR}/bot-config.json" | head -n1 | cut -d'"' -f4 || true)
+    fi
+
+    local tg_masked="Not Set"
+    if [ -n "$tg_token" ]; then
+        tg_masked="${tg_token:0:10}****************"
+    fi
+
+    echo -e "📋 Current Configuration in .env / bot-config.json:"
+    echo -e "   • Telegram Bot Token:  ${CYAN}${tg_masked}${NC}"
+    echo -e "   • Telegram Channel:    ${CYAN}${tg_channel:-Not Set}${NC}"
+    echo -e "   • Telegram Admin ID:   ${CYAN}${tg_admin:-Not Set}${NC}"
+    echo -e "   • Bale Channel:        ${CYAN}${bale_channel:-Not Set}${NC}"
+    echo ""
+
+    # 1. Test Network Connectivity to api.telegram.org
+    echo -e "1. Testing Server Network Connectivity to api.telegram.org..."
+    local http_probe
+    http_probe=$(curl -s -m 8 -o /dev/null -w "%{http_code}" "https://api.telegram.org" 2>/dev/null || echo "000")
+    if [ "$http_probe" != "000" ]; then
+        echo -e "   ${GREEN}● Outbound connectivity to Telegram API: OK (HTTP ${http_probe})${NC}"
+    else
+        echo -e "   ${RED}❌ Could not connect to https://api.telegram.org!${NC}"
+        echo -e "   ${YELLOW}👉 Reason: Outbound connection to api.telegram.org is blocked or timed out.${NC}"
+        echo -e "      If your VPS is in Iran, Telegram API is filtered by national firewalls."
+        echo -e "      Make sure your VPS has open international internet access.${NC}"
+        echo ""
+    fi
+
+    # 2. Test Bot Token via getMe
+    echo -e "2. Testing Telegram Bot Token (getMe)..."
+    if [ -z "$tg_token" ]; then
+        echo -e "   ${RED}❌ TELEGRAM_BOT_TOKEN is not configured!${NC}"
+        echo -e "   👉 Choose option 8 in the main menu to enter your bot token from @BotFather."
+    else
+        local me_json
+        me_json=$(curl -s -m 10 "https://api.telegram.org/bot${tg_token}/getMe" 2>&1 || echo "")
+        if echo "$me_json" | grep -q '"ok":true'; then
+            local bot_id
+            bot_id=$(echo "$me_json" | grep -o '"id":[0-9]*' | head -n1 | cut -d':' -f2)
+            local bot_name
+            bot_name=$(echo "$me_json" | grep -o '"first_name":"[^"]*' | head -n1 | cut -d'"' -f4)
+            local bot_username
+            bot_username=$(echo "$me_json" | grep -o '"username":"[^"]*' | head -n1 | cut -d'"' -f4)
+            echo -e "   ${GREEN}● Bot Token is VALID and ACTIVE!${NC}"
+            echo -e "     Name:     ${CYAN}${bot_name}${NC}"
+            echo -e "     Username: ${CYAN}@${bot_username}${NC}"
+            echo -e "     Bot ID:   ${CYAN}${bot_id}${NC}"
+
+            # 3. Force-register Bot Commands and Chat Menu Button
+            echo ""
+            echo -e "3. Force-Registering Telegram Bot Menu & Inline Commands..."
+            # Clear conflicting webhooks
+            curl -s -m 8 "https://api.telegram.org/bot${tg_token}/deleteWebhook?drop_pending_updates=false" >/dev/null 2>&1 || true
+            
+            # Register Bot Commands
+            local cmd_payload='{"commands":[{"command":"start","description":"🏠 منوی اصلی و شروع ربات"},{"command":"quiz","description":"📝 آزمون تستی روز جاری"},{"command":"bank","description":"📚 بانک ۹۰ آزمون دوره"},{"command":"karname","description":"🏆 کارنامه، امتیاز و رتبه من"},{"command":"rank","description":"🥇 جدول نخبگان"},{"command":"lesson","description":"📖 درس و سرفصل آموزشی امروز"},{"command":"help","description":"❓ راهنما و پشتیبانی"}]}'
+            local cmd_res
+            cmd_res=$(curl -s -m 10 -X POST "https://api.telegram.org/bot${tg_token}/setMyCommands" \
+                -H "Content-Type: application/json" \
+                -d "${cmd_payload}" 2>&1 || echo "")
+
+            # Register Menu Button in chat bar
+            local btn_res
+            btn_res=$(curl -s -m 10 -X POST "https://api.telegram.org/bot${tg_token}/setChatMenuButton" \
+                -H "Content-Type: application/json" \
+                -d '{"menu_button":{"type":"commands"}}' 2>&1 || echo "")
+
+            if echo "$cmd_res" | grep -q '"ok":true'; then
+                echo -e "   ${GREEN}● Bot Menu Commands (/start, /quiz, /bank, /karname, /rank, /lesson) registered!${NC}"
+                echo -e "   ${GREEN}● Chat Menu Button activated on Telegram!${NC}"
+                echo -e "   👉 Users can now open @${bot_username} in Telegram and see the Menu button."
+            else
+                echo -e "   ${YELLOW}⚠️ Menu registration response: ${cmd_res}${NC}"
+            fi
+
+            # 4. Test Channel Configuration & Permissions
+            echo ""
+            echo -e "4. Checking Channel Configuration (${tg_channel:-Not Set})..."
+            if [ -z "$tg_channel" ]; then
+                echo -e "   ${RED}❌ TELEGRAM_CHANNEL_ID is not configured!${NC}"
+                echo -e "   👉 Choose option 8 in the main menu to enter your channel (e.g. @mychannel or -100...).${NC}"
+            else
+                local probe_ch="$tg_channel"
+                probe_ch=$(echo "$probe_ch" | sed 's|https://t.me/||g' | sed 's|t.me/||g' | tr -d '/')
+                if [[ ! "$probe_ch" =~ ^@ ]] && [[ ! "$probe_ch" =~ ^- ]]; then
+                    probe_ch="@${probe_ch}"
+                fi
+
+                local chat_json
+                chat_json=$(curl -s -m 10 "https://api.telegram.org/bot${tg_token}/getChat?chat_id=${probe_ch}" 2>&1 || echo "")
+                if echo "$chat_json" | grep -q '"ok":true'; then
+                    local ch_title
+                    ch_title=$(echo "$chat_json" | grep -o '"title":"[^"]*' | head -n1 | cut -d'"' -f4)
+                    local ch_type
+                    ch_type=$(echo "$chat_json" | grep -o '"type":"[^"]*' | head -n1 | cut -d'"' -f4)
+                    local ch_id
+                    ch_id=$(echo "$chat_json" | grep -o '"id":-[0-9]*' | head -n1 | cut -d':' -f2)
+                    echo -e "   ${GREEN}● Channel Found by Telegram!${NC}"
+                    echo -e "     Title: ${CYAN}${ch_title}${NC}"
+                    echo -e "     Type:  ${CYAN}${ch_type}${NC}"
+                    echo -e "     ID:    ${CYAN}${ch_id}${NC}"
+
+                    # 5. Check if Bot is an Administrator with Post Rights
+                    echo ""
+                    echo -e "5. Checking Bot Administrator Status in Channel..."
+                    local admins_json
+                    admins_json=$(curl -s -m 10 "https://api.telegram.org/bot${tg_token}/getChatMember?chat_id=${probe_ch}&user_id=${bot_id}" 2>&1 || echo "")
+                    if echo "$admins_json" | grep -q '"status":"administrator"'; then
+                        echo -e "   ${GREEN}● Bot is an ADMINISTRATOR in the channel!${NC}"
+                        if echo "$admins_json" | grep -q '"can_post_messages":false'; then
+                            echo -e "   ${RED}❌ Warning: Bot is admin, BUT 'can_post_messages' is set to FALSE!${NC}"
+                            echo -e "   ${YELLOW}👉 Go to channel settings -> Administrators -> @${bot_username} -> enable 'Post Messages'.${NC}"
+                        else
+                            echo -e "   ${GREEN}● Permission: can_post_messages = TRUE (Authorized to post)${NC}"
+                        fi
+                    elif echo "$admins_json" | grep -q '"status":"creator"'; then
+                        echo -e "   ${GREEN}● Bot is the CREATOR/OWNER of the channel! Full privileges.${NC}"
+                    else
+                        echo -e "   ${RED}❌ BOT IS NOT AN ADMINISTRATOR IN THIS CHANNEL!${NC}"
+                        echo -e "   ${YELLOW}════════════════════════════════════════════════════════════════${NC}"
+                        echo -e "   ${YELLOW}👉 HOW TO FIX (THIS IS WHY YOUR BOT CANNOT POST TO THE CHANNEL):${NC}"
+                        echo -e "      1. Open Telegram on your phone or desktop."
+                        echo -e "      2. Go to your channel (${probe_ch})."
+                        echo -e "      3. Click Channel Profile -> Edit (icon مداد) -> Administrators (مدیران)."
+                        echo -e "      4. Tap 'Add Administrator' (افزودن مدیر)."
+                        echo -e "      5. Search for: ${CYAN}@${bot_username}${NC}"
+                        echo -e "      6. Make sure the toggle ${BOLD}'Post Messages' (ارسال پیام)${NC} is ENABLED."
+                        echo -e "      7. Click Save / Done."
+                        echo -e "   ${YELLOW}════════════════════════════════════════════════════════════════${NC}"
+                    fi
+
+                    # 6. Offer Live Test Message
+                    echo ""
+                    prompt_user "Would you like to send a LIVE TEST POST to ${probe_ch} right now? [y/N]: " send_test "N"
+                    if [[ "$send_test" =~ ^[Yy]$ ]]; then
+                        log_info "Sending formatted test post to ${probe_ch}..."
+                        local test_text="🎉 <b>تست موفقیت‌آمیز ارتباط ربات با کانال حسابداری ایران</b>%0A%0A✅ سیستم ارسال خودکار محتوای آموزشی با موفقیت به این کانال متصل گردید.%0A⏰ زمان تست: $(date +"%Y-%m-%d %H:%M:%S")%0A%0A📢 <i>پست‌های دوره طبق برنامه زمان‌بندی روزانه منتشر خواهند شد.</i>"
+                        local send_res
+                        send_res=$(curl -s -m 15 "https://api.telegram.org/bot${tg_token}/sendMessage?chat_id=${probe_ch}&text=${test_text}&parse_mode=HTML" 2>&1 || echo "")
+                        if echo "$send_res" | grep -q '"ok":true'; then
+                            log_success "LIVE TEST POST PUBLISHED SUCCESSFULLY to ${probe_ch}!"
+                            echo -e "   👉 Check your channel now to see the post!"
+                        else
+                            local err_desc
+                            err_desc=$(echo "$send_res" | grep -o '"description":"[^"]*' | head -n1 | cut -d'"' -f4 || echo "$send_res")
+                            log_error "Failed to publish test post: ${err_desc}"
+                        fi
+                    fi
+                else
+                    local chat_err
+                    chat_err=$(echo "$chat_json" | grep -o '"description":"[^"]*' | head -n1 | cut -d'"' -f4 || echo "$chat_json")
+                    echo -e "   ${RED}❌ Telegram could not find channel '${probe_ch}'!${NC}"
+                    echo -e "   Telegram API Error: ${YELLOW}${chat_err}${NC}"
+                    echo -e "   ${YELLOW}👉 If channel is PUBLIC: make sure you set a public link in Telegram and use @YourChannelName.${NC}"
+                    echo -e "   ${YELLOW}👉 If channel is PRIVATE: add @${bot_username} as Administrator first, then use its numeric ID (-100...).${NC}"
+                fi
+            fi
+        else
+            local err_desc
+            err_desc=$(echo "$me_json" | grep -o '"description":"[^"]*' | head -n1 | cut -d'"' -f4 || echo "$me_json")
+            echo -e "   ${RED}❌ Telegram API rejected bot token! Error: ${err_desc}${NC}"
+            echo -e "   ${YELLOW}👉 Check your bot token from @BotFather.${NC}"
+        fi
+    fi
+
+    # 7. Check Bale Bot (optional)
+    if [ -n "$bale_token" ]; then
+        echo ""
+        echo -e "6. Testing Bale Bot Token..."
+        local bale_me
+        bale_me=$(curl -s -m 10 "https://tapi.bale.ai/bot${bale_token}/getMe" 2>&1 || echo "")
+        if echo "$bale_me" | grep -q '"ok":true'; then
+            local bale_name
+            bale_name=$(echo "$bale_me" | grep -o '"first_name":"[^"]*' | head -n1 | cut -d'"' -f4 || echo "Bale Bot")
+            echo -e "   ${GREEN}● Bale Bot is ONLINE: ${bale_name}${NC}"
+        else
+            echo -e "   ${YELLOW}⚠️ Bale API returned: ${bale_me}${NC}"
+        fi
+    fi
+
+    echo ""
+    echo "=================================================================="
+    read -p "Press Enter to return to menu..." -r
+}
+
+rebuild_and_restart() {
+    print_banner
+    check_root
+    log_info "Rebuilding and restarting ${SERVICE_NAME} to apply all new features..."
+    cd "${APP_DIR}"
+
+    log_info "Compiling web panel and backend server with esbuild..."
+    npm run build
+
+    log_info "Reloading systemd daemon..."
+    run_as_root systemctl daemon-reload
+
+    log_info "Restarting ${SERVICE_NAME} service..."
+    run_as_root systemctl restart "${SERVICE_NAME}"
+    sleep 2
+
+    if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+        log_success "${SERVICE_NAME} is running the latest build successfully!"
+    else
+        log_error "${SERVICE_NAME} failed to start. Recent error logs:"
+        run_as_root journalctl -u "${SERVICE_NAME}" -n 25 --no-pager
+    fi
     read -p "Press Enter to return to menu..." -r
 }
 
@@ -1146,10 +1541,13 @@ show_menu() {
     echo -e " ${GREEN}15)${NC} Enable Auto-Start on Boot"
     echo -e " ${GREEN}16)${NC} Disable Auto-Start on Boot"
     echo -e " ${GREEN}17)${NC} ${CYAN}⚡ 24/7 Auto-Pilot Daily Scheduler & Test Triggers${NC}"
+    echo -e " ${GREEN}18)${NC} ${CYAN}🔍 Comprehensive Telegram & Bale Diagnostics (Tokens, Channels, Rights & Menu)${NC}"
+    echo -e " ${GREEN}19)${NC} ${YELLOW}🔄 Rebuild & Restart Backend Service (npm run build && restart)${NC}"
+    echo -e " ${GREEN}20)${NC} ${PURPLE}📥 Restore System from Backup (data_persistence / archive / file)${NC}"
     echo "----------------------------------------------------------------"
     echo -e " ${RED}0)${NC} Exit"
     echo ""
-    prompt_user "Please select an option [0-17]: " choice ""
+    prompt_user "Please select an option [0-20]: " choice ""
     case "$choice" in
         1) do_install ;;
         2) do_update ;;
@@ -1168,6 +1566,9 @@ show_menu() {
         15) enable_service ;;
         16) disable_service ;;
         17) manage_scheduler_cli; show_menu ;;
+        18) diagnose_telegram_and_channel; show_menu ;;
+        19) rebuild_and_restart; show_menu ;;
+        20) restore_system_backup; show_menu ;;
         0) exit 0 ;;
         *) log_error "Invalid selection"; sleep 1; show_menu ;;
     esac
@@ -1201,6 +1602,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --backup|-b)
             CLI_ACTION="backup"
+            shift
+            ;;
+        --restore)
+            CLI_ACTION="restore"
             shift
             ;;
         --status|-s)
@@ -1292,6 +1697,9 @@ case "${CLI_ACTION}" in
         ;;
     backup)
         create_and_send_backup "CLI Flag"
+        ;;
+    restore)
+        restore_system_backup
         ;;
     status)
         do_status

@@ -1,0 +1,40 @@
+{
+  "enabled": true,
+  "currentDayNumber": 1,
+  "planMode": "balanced_mix",
+  "morningTime": "09:00",
+  "noonTime": "14:30",
+  "eveningTime": "20:00",
+  "lateNightTime": "22:30",
+  "sendToTelegram": true,
+  "sendToBale": true,
+  "autoAdvanceDay": true,
+  "channelSignature": "📢 کانال تخصصی آموزش حسابداری و مالیات ایران",
+  "autoHashtags": "#آموزش_حسابداری #مالیات #سامانه_مودیان #قوانین_مالیاتی",
+  "lastExecutedDate": "2026-09-12",
+  "executedSlotsToday": [],
+  "history": [
+    {
+      "id": "post-1789237122721-sasg",
+      "timestamp": "2026-09-12T18:18:42.721Z",
+      "tehranTime": "2026-09-12 21:48",
+      "dayNumber": 1,
+      "slot": "manual",
+      "slotTitle": "✨ زنگ آخر شب: طنز، لبخند و رفع خستگی حسابداران",
+      "title": "طنز شبانه: صبح‌های شنبه و معادلات کوانتومی دکمه Snooze!",
+      "status": "simulated",
+      "telegramStatus": {
+        "ok": true,
+        "simulated": true,
+        "error": "توکن یا کانال تلگرام تنظیم نشده است (حالت شبیه‌سازی)."
+      },
+      "baleStatus": {
+        "ok": true,
+        "simulated": true,
+        "error": "توکن یا کانال بله تنظیم نشده است (حالت شبیه‌سازی)."
+      },
+      "contentPreview": "🌙 <b>طنز و لبخند آخر شب | زنگ خنده و رفع خستگی</b> ✨\n\n🎭 <i>طنز جذاب روزمره</i>\n\n━━━━━━━━━━━━━━━━━━━━━\n\n✨ <b>صبح‌های شنبه و معادلات کوانتومی دکمه Snooze!</b>\n\n\nآلارم ساعت ۰۶:۳۰ صب..."
+    }
+  ],
+  "lastRunTimestamp": "2026-09-12T18:18:42.721Z"
+}

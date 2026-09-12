@@ -340,6 +340,7 @@ export async function dispatchToChannels(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000),
       });
       let data = await tgRes.json();
 
@@ -357,6 +358,7 @@ export async function dispatchToChannels(
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(fallbackPayload),
+          signal: AbortSignal.timeout(15000),
         });
         data = await tgRes.json();
       }
@@ -389,6 +391,7 @@ export async function dispatchToChannels(
           chat_id: baleChannel,
           text: text,
         }),
+        signal: AbortSignal.timeout(15000),
       });
       const data = await baleRes.json();
       if (data.ok) {
@@ -421,6 +424,7 @@ export async function dispatchToChannels(
           text: alertText,
           parse_mode: "HTML",
         }),
+        signal: AbortSignal.timeout(10000),
       }).catch(() => {});
     } catch (_e) {}
   }

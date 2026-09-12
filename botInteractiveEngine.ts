@@ -2,7 +2,8 @@ import fs from "fs";
 import path from "path";
 import { getOrCreateDayItem, initialThreeMonthCurriculum } from "./src/data/threeMonthCurriculum";
 import { initialDailyQuizzes } from "./src/data/quizData";
-import { loadServerBotConfig } from "./serverBotConfig";
+import { loadServerBotConfig, saveServerBotConfig, sanitizeValue } from "./serverBotConfig";
+import { getSchedulerStatus, updateSchedulerConfig, executeSlot } from "./serverScheduler";
 
 export interface TelegramQuizAnswer {
   quizId: string;
@@ -36,13 +37,28 @@ export interface BotUserDatabase {
 }
 
 const DB_PATH = path.join(process.cwd(), "users-quiz-data.json");
+const PERSISTENCE_DIR = path.join(process.cwd(), "data_persistence");
+const PERSISTENCE_DB_PATH = path.join(PERSISTENCE_DIR, "users-quiz-data.json");
 
-// Load database from disk
+// Ensure persistence directory exists
+try {
+  if (!fs.existsSync(PERSISTENCE_DIR)) {
+    fs.mkdirSync(PERSISTENCE_DIR, { recursive: true });
+  }
+} catch (_e) {}
+
+// Load database from disk with persistence recovery
 function loadUserDatabase(): BotUserDatabase {
   try {
     if (fs.existsSync(DB_PATH)) {
       const raw = fs.readFileSync(DB_PATH, "utf-8");
       return JSON.parse(raw);
+    } else if (fs.existsSync(PERSISTENCE_DB_PATH)) {
+      const raw = fs.readFileSync(PERSISTENCE_DB_PATH, "utf-8");
+      const parsed = JSON.parse(raw);
+      fs.writeFileSync(DB_PATH, raw, "utf-8");
+      console.log("[Persistence] Successfully auto-recovered users-quiz-data.json from data_persistence!");
+      return parsed;
     }
   } catch (err) {
     console.warn("Could not read users-quiz-data.json, creating initial:", err);
@@ -53,17 +69,150 @@ function loadUserDatabase(): BotUserDatabase {
   };
 }
 
-// Save database to disk
+// Save database to disk and mirror to persistence directory
 function saveUserDatabase(db: BotUserDatabase) {
   try {
     db.lastUpdated = new Date().toISOString();
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+    const str = JSON.stringify(db, null, 2);
+    fs.writeFileSync(DB_PATH, str, "utf-8");
+    try {
+      fs.writeFileSync(PERSISTENCE_DB_PATH, str, "utf-8");
+    } catch (_e) {}
   } catch (err) {
     console.error("Failed to save users-quiz-data.json:", err);
   }
 }
 
 let dbInstance: BotUserDatabase = loadUserDatabase();
+
+// Check if user is recognized as main administrator
+export function isBotAdmin(userIdOrChatId: number | string): boolean {
+  const cleanId = sanitizeValue(userIdOrChatId);
+  if (!cleanId) return false;
+  const conf = loadServerBotConfig();
+  const envAdmin = sanitizeValue(process.env.TELEGRAM_ADMIN_CHAT_ID);
+  const confAdmin = sanitizeValue(conf.telegramAdminChatId);
+  return (envAdmin !== "" && cleanId === envAdmin) || (confAdmin !== "" && cleanId === confAdmin);
+}
+
+// Generate snapshot and send full backup file directly to Telegram chat
+export async function sendBackupToChat(
+  token: string,
+  chatId: number | string,
+  captionPrefix?: string
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const scheduler = getSchedulerStatus();
+    const conf = loadServerBotConfig();
+    const backupData = {
+      system: "Accounting Bot Iran Platform",
+      version: "3.5.0",
+      createdAt: new Date().toISOString(),
+      shamsiDate: new Intl.DateTimeFormat("fa-IR", { dateStyle: "full", timeStyle: "medium" }).format(new Date()),
+      config: conf,
+      env: {
+        PORT: process.env.PORT || 3000,
+        TELEGRAM_CHANNEL_ID: process.env.TELEGRAM_CHANNEL_ID,
+        TELEGRAM_ADMIN_CHAT_ID: process.env.TELEGRAM_ADMIN_CHAT_ID,
+        BALE_CHANNEL_ID: process.env.BALE_CHANNEL_ID,
+        BALE_ADMIN_CHAT_ID: process.env.BALE_ADMIN_CHAT_ID,
+      },
+      scheduler: {
+        currentDayNumber: scheduler.currentDayNumber,
+        enabled: scheduler.enabled,
+        planMode: scheduler.planMode,
+        morningTime: scheduler.morningTime,
+        noonTime: scheduler.noonTime,
+        eveningTime: scheduler.eveningTime,
+        lateNightTime: scheduler.lateNightTime,
+      },
+      usersDatabase: dbInstance,
+    };
+
+    const jsonStr = JSON.stringify(backupData, null, 2);
+    const fileName = `accounting_bot_backup_${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+
+    // Also persist local file in backups directory
+    try {
+      const backupDir = path.join(process.cwd(), "backups");
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      fs.writeFileSync(path.join(backupDir, fileName), jsonStr, "utf-8");
+    } catch (_e) {}
+
+    const formData = new FormData();
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    formData.append("chat_id", String(chatId));
+    formData.append("document", blob, fileName);
+    formData.append(
+      "caption",
+      `${captionPrefix || "📦"} <b>فایل پشتیبان کامل سیستم حسابداری ایران</b>\n` +
+      `📅 تاریخ: ${new Intl.DateTimeFormat("fa-IR").format(new Date())}\n` +
+      `👥 کاربران عضو ربات: ${Object.keys(dbInstance.users).length} نفر\n` +
+      `📖 روز جاری دوره: روز ${scheduler.currentDayNumber} از ۹۰\n` +
+      `⚙️ شامل کلیه تنظیمات، کارنامه‌ها، امتیازات و زمان‌بندی.\n\n` +
+      `💡 <b>راهنمای بازگردانی:</b> هر زمان مایل به بازگردانی بودید، کافیست همین فایل را در همین چت برای ربات ارسال (یا فوروارد) فرمایید!`
+    );
+    formData.append("parse_mode", "HTML");
+
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+      method: "POST",
+      body: formData,
+      signal: AbortSignal.timeout(30000),
+    });
+    const resData = await res.json();
+    return { ok: Boolean(resData.ok), error: resData.description };
+  } catch (err: any) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// Restore entire system from parsed backup JSON
+export async function restoreSystemFromBackup(data: any): Promise<{ ok: boolean; message: string; usersCount: number }> {
+  try {
+    let usersCount = 0;
+    // 1. Restore users database
+    if (data.usersDatabase?.users && typeof data.usersDatabase.users === "object") {
+      dbInstance = {
+        users: data.usersDatabase.users,
+        lastUpdated: new Date().toISOString(),
+      };
+      saveUserDatabase(dbInstance);
+      usersCount = Object.keys(dbInstance.users).length;
+    } else if (data.users && typeof data.users === "object") {
+      dbInstance = {
+        users: data.users,
+        lastUpdated: new Date().toISOString(),
+      };
+      saveUserDatabase(dbInstance);
+      usersCount = Object.keys(dbInstance.users).length;
+    }
+
+    // 2. Restore bot config
+    if (data.config && typeof data.config === "object") {
+      saveServerBotConfig(data.config);
+    }
+
+    // 3. Restore scheduler day number
+    if (data.scheduler?.currentDayNumber) {
+      updateSchedulerConfig({ currentDayNumber: data.scheduler.currentDayNumber });
+    }
+
+    // 4. Save a copy to backups folder
+    try {
+      const backupDir = path.join(process.cwd(), "backups");
+      if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+      fs.writeFileSync(path.join(backupDir, `restored_${Date.now()}.json`), JSON.stringify(data, null, 2), "utf-8");
+    } catch (_e) {}
+
+    return {
+      ok: true,
+      message: `بازگردانی با موفقیت انجام شد. اطلاعات ${usersCount} کاربر، کارنامه‌ها و تنظیمات کانال با موفقیت بازیابی شدند.`,
+      usersCount,
+    };
+  } catch (e: any) {
+    return { ok: false, message: e.message || "خطا در پردازش فایل پشتیبان", usersCount: 0 };
+  }
+}
 
 // In-memory helper to get or create a user
 export function getOrCreateBotUser(
@@ -356,6 +505,23 @@ export const BOT_PERSISTENT_REPLY_KEYBOARD = {
   is_persistent: true,
 };
 
+// Return persistent reply keyboard customized for role (shows Admin & Backup buttons for admin)
+export function getPersistentKeyboardForUser(userIdOrChatId: number | string) {
+  if (isBotAdmin(userIdOrChatId)) {
+    return {
+      keyboard: [
+        [{ text: "📝 آزمون تستی امروز" }, { text: "📚 بانک ۹۰ آزمون دوره" }],
+        [{ text: "🏆 کارنامه و رتبه من" }, { text: "📖 درس و آموزش امروز" }],
+        [{ text: "👑 پنل مدیریت ادمین ⚙️" }, { text: "📦 دریافت آنی بکاپ 💾" }],
+        [{ text: "🏠 منوی اصلی ربات" }, { text: "❓ راهنما و پشتیبانی" }],
+      ],
+      resize_keyboard: true,
+      is_persistent: true,
+    };
+  }
+  return BOT_PERSISTENT_REPLY_KEYBOARD;
+}
+
 // Initialize Telegram Bot Commands and Chat Menu Button
 export async function initializeBotCommands(token: string) {
   try {
@@ -375,6 +541,8 @@ export async function initializeBotCommands(token: string) {
         { command: "karname", description: "🏆 کارنامه، امتیاز و رتبه من" },
         { command: "rank", description: "🥇 جدول رتبه‌بندی نخبگان" },
         { command: "lesson", description: "📖 درس و سرفصل آموزشی امروز" },
+        { command: "admin", description: "👑 پنل مدیریت و دریافت بکاپ" },
+        { command: "backup", description: "📦 دریافت فایل پشتیبان سیستم" },
         { command: "help", description: "❓ راهنما و پشتیبانی" },
       ],
     });
@@ -554,7 +722,15 @@ export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: 
   if (channelSignature) text += `${channelSignature}\n\n`;
   text += `👇 <b>لطفاً بخش مورد نظر خود را از دکمه‌های زیر یا منوی پایین چت انتخاب کنید:</b>`;
 
-  const inlineKeyboard = [
+  const inlineKeyboard: any[][] = [];
+
+  if (isBotAdmin(user.userId)) {
+    inlineKeyboard.push([
+      { text: `👑 پنل مدیریت و دریافت فایل پشتیبان (بکاپ) 📦`, callback_data: `admin_panel`, style: "success" },
+    ]);
+  }
+
+  inlineKeyboard.push(
     [
       { text: `📝 شروع آزمون تستی امروز 🎯`, callback_data: `q_today`, style: "success" },
     ],
@@ -568,6 +744,51 @@ export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: 
     ],
     [
       { text: `❓ راهنمای دستورات ربات 💡`, callback_data: `help_cmd`, style: "primary" },
+    ]
+  );
+
+  return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+}
+
+// Format Admin Control and Backup Panel
+export function formatAdminPanelMessage(fromId: number | string) {
+  const stats = getAllBotUsersStats();
+  const scheduler = getSchedulerStatus();
+  const conf = loadServerBotConfig();
+
+  let text = `👑 <b>پنل مدیریت سامانه آموزش و آزمون حسابداری</b>\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `🤖 <b>ربات متصل:</b> @${botUsername || "AccountingBot"}\n`;
+  text += `📢 <b>کانال تلگرام:</b> ${conf.telegramChannel || "تنظیم نشده"}\n`;
+  text += `👥 <b>تعداد کاربران ثبت‌شده در ربات:</b> <b>${stats.totalUsers}</b> نفر\n`;
+  text += `🎯 <b>تست‌های ثبت‌شده در دیتابیس:</b> <b>${stats.totalAnswersAcrossBot}</b> سوال\n`;
+  text += `📅 <b>روز جاری دوره ۳ ماهه:</b> روز <b>${scheduler.currentDayNumber}</b> از ۹۰\n`;
+  text += `⏰ <b>وضعیت انتشار خودکار:</b> ${scheduler.enabled ? "🟢 فعال (۴ نوبت در روز)" : "🔴 غیرفعال"}\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `👇 <b>دستورات مدیریتی، ارسال فوری و بکاپ:</b>`;
+
+  const inlineKeyboard = [
+    [
+      { text: `📦 دریافت آنی فایل کامل بکاپ 💾`, callback_data: `admin_backup` },
+    ],
+    [
+      { text: `📥 راهنمای بازگردانی سریع اطلاعات 🔄`, callback_data: `admin_restore_info` },
+    ],
+    [
+      { text: `☀️ ارسال فوری صبح (۰۹:۰۰)`, callback_data: `admin_post:morning` },
+      { text: `🛠 ارسال فوری ظهر (۱۴:۳۰)`, callback_data: `admin_post:noon` },
+    ],
+    [
+      { text: `📝 ارسال فوری عصر (۲۰:۰۰)`, callback_data: `admin_post:evening` },
+      { text: `🌙 ارسال فوری شب (۲۲:۳۰)`, callback_data: `admin_post:late_night` },
+    ],
+    [
+      { text: `➕ یک روز جلو (+1)`, callback_data: `admin_day:plus` },
+      { text: `➖ یک روز عقب (-1)`, callback_data: `admin_day:minus` },
+    ],
+    [
+      { text: `🔄 ثبت مجدد دکمه منو در تلگرام`, callback_data: `admin_sync_menu` },
+      { text: `🏠 منوی اصلی ربات`, callback_data: `main_menu` },
     ],
   ];
 
@@ -649,7 +870,7 @@ function cleanTelegramReplyMarkup(markup: any): any {
   return markup;
 }
 
-// Telegram API Caller Helper with HTML parse fallback and markup sanitization
+// Telegram API Caller Helper with HTML parse fallback, markup sanitization, and timeout
 async function callTelegramApi(token: string, method: string, payload: Record<string, any>) {
   const url = `https://api.telegram.org/bot${token}/${method}`;
   const cleanPayload = { ...payload };
@@ -657,31 +878,38 @@ async function callTelegramApi(token: string, method: string, payload: Record<st
     cleanPayload.reply_markup = cleanTelegramReplyMarkup(cleanPayload.reply_markup);
   }
 
-  let res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cleanPayload),
-  });
-  let data = await res.json();
-
-  // Retry without parse_mode if Telegram rejected HTML entities
-  if (!data.ok && typeof data.description === "string" && data.description.includes("can't parse entities") && cleanPayload.text) {
-    const plainText = cleanPayload.text.replace(/<[^>]*>/g, "");
-    const fallbackPayload = {
-      ...cleanPayload,
-      text: plainText,
-      parse_mode: undefined,
-    };
-    delete fallbackPayload.parse_mode;
-    res = await fetch(url, {
+  try {
+    let res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(fallbackPayload),
+      body: JSON.stringify(cleanPayload),
+      signal: AbortSignal.timeout(15000),
     });
-    data = await res.json();
-  }
+    let data = await res.json();
 
-  return data;
+    // Retry without parse_mode if Telegram rejected HTML entities
+    if (!data.ok && typeof data.description === "string" && data.description.includes("can't parse entities") && cleanPayload.text) {
+      const plainText = cleanPayload.text.replace(/<[^>]*>/g, "");
+      const fallbackPayload = {
+        ...cleanPayload,
+        text: plainText,
+        parse_mode: undefined,
+      };
+      delete fallbackPayload.parse_mode;
+      res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fallbackPayload),
+        signal: AbortSignal.timeout(15000),
+      });
+      data = await res.json();
+    }
+
+    return data;
+  } catch (err: any) {
+    console.error(`[TelegramApi] Error calling ${method}:`, err.message || err);
+    return { ok: false, description: err.message || "خطای ارتباط با سرور تلگرام" };
+  }
 }
 
 // Process a single Telegram Update (Message or CallbackQuery)
@@ -919,7 +1147,9 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         helpText += `🔹 /bank : مشاهده بانک ۹۰ روز آزمون دوره\n`;
         helpText += `🔹 /stats یا /karname : مشاهده کارنامه، درصد قبولی و رتبه\n`;
         helpText += `🔹 /rank : جدول رتبه‌بندی نخبگان و برترین‌های کانال\n`;
-        helpText += `🔹 /lesson : مشاهده آموزش مفهومی و سند دوبل روز\n\n`;
+        helpText += `🔹 /lesson : مشاهده آموزش مفهومی و سند دوبل روز\n`;
+        helpText += `🔹 /admin : پنل مدیریت و دریافت بکاپ (مخصوص ادمین)\n`;
+        helpText += `🔹 /backup : دریافت فوری فایل بکاپ (مخصوص ادمین)\n\n`;
         helpText += `✨ <i>تمامی آزمون‌ها با دکمه‌های شیشه‌ای تعاملی قابل انجام بوده و سوابق شما اختصاصی ذخیره می‌شود.</i>`;
 
         const inlineKeyboard = [
@@ -935,6 +1165,160 @@ export async function processTelegramUpdate(token: string, update: any, currentD
           text: helpText,
           parse_mode: "HTML",
           reply_markup: { inline_keyboard: inlineKeyboard },
+        });
+        return;
+      }
+
+      // Admin Panel Callback
+      if (data === "admin_panel") {
+        await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
+        if (!isBotAdmin(from.id)) {
+          await callTelegramApi(token, "answerCallbackQuery", {
+            callback_query_id: callbackId,
+            text: "⛔️ این بخش منحصراً مخصوص مدیر اصلی سامانه است.",
+            show_alert: true,
+          });
+          return;
+        }
+        const panelMsg = formatAdminPanelMessage(from.id);
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: panelMsg.text,
+          parse_mode: "HTML",
+          reply_markup: panelMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Admin Backup Download Callback
+      if (data === "admin_backup") {
+        if (!isBotAdmin(from.id)) {
+          await callTelegramApi(token, "answerCallbackQuery", {
+            callback_query_id: callbackId,
+            text: "⛔️ دسترسی غیرمجاز.",
+            show_alert: true,
+          });
+          return;
+        }
+        await callTelegramApi(token, "answerCallbackQuery", {
+          callback_query_id: callbackId,
+          text: "📦 در حال تولید فایل پشتیبان و ارسال...",
+        });
+        await sendBackupToChat(token, chatId);
+        return;
+      }
+
+      // Admin Restore Info Callback
+      if (data === "admin_restore_info") {
+        await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
+        let restoreGuide = `📥 <b>راهنمای بازگردانی سریع اطلاعات و کارنامه‌ها:</b>\n\n`;
+        restoreGuide += `۱️⃣ هر زمان مایل به بازگردانی بودید، کافیست فایل بکاپ (با پسوند <code>.json</code>) را در همین چت برای ربات <b>ارسال (یا فوروارد)</b> فرمایید.\n\n`;
+        restoreGuide += `۲️⃣ ربات به صورت هوشمند ساختار دیتابیس، کاربران، کارنامه‌ها و تنظیمات را اعتبارسنجی نموده و در یک ثانیه سیستم را بازیابی می‌کند.\n\n`;
+        restoreGuide += `🛡 <b>سیستم محافظت خودکار:</b> یک نسخه پشتیبان از تمام کارنامه‌ها و تنظیمات به صورت دائمی در مسیر <code>data_persistence/</code> نیز ذخیره است و با آپدیت‌های بعدی هرگز پاک نخواهد شد!`;
+
+        const inlineKeyboard = [
+          [
+            { text: `📦 دریافت فایل فعلی بکاپ 💾`, callback_data: `admin_backup` },
+            { text: `👑 بازگشت به پنل ادمین`, callback_data: `admin_panel` },
+          ],
+        ];
+
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: restoreGuide,
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: inlineKeyboard },
+        });
+        return;
+      }
+
+      // Admin Post Slot Immediate Execution
+      if (data.startsWith("admin_post:")) {
+        if (!isBotAdmin(from.id)) {
+          await callTelegramApi(token, "answerCallbackQuery", {
+            callback_query_id: callbackId,
+            text: "⛔️ دسترسی غیرمجاز.",
+            show_alert: true,
+          });
+          return;
+        }
+        const slot = data.split(":")[1] as "morning" | "noon" | "evening" | "late_night";
+        await callTelegramApi(token, "answerCallbackQuery", {
+          callback_query_id: callbackId,
+          text: `🚀 در حال ارسال پست ${slot} به کانال...`,
+        });
+        try {
+          const res = await executeSlot(slot, { manual: true });
+          const isOk = res.status === "success" || res.status === "partial";
+          await callTelegramApi(token, "sendMessage", {
+            chat_id: chatId,
+            text: isOk
+              ? `✅ <b>پست «${res.slotTitle}» با موفقیت در کانال منتشر شد!</b>\n📅 روز دوره: روز ${res.dayNumber}\n⏱ تاریخ: ${res.tehranTime}`
+              : `⚠️ <b>خطا در ارسال پست به کانال:</b> ${res.telegramStatus?.error || "بررسی کنید ربات ادمین کانال با حق ارسال پیام باشد."}`,
+            parse_mode: "HTML",
+          });
+        } catch (e: any) {
+          await callTelegramApi(token, "sendMessage", {
+            chat_id: chatId,
+            text: `❌ خطا در اجرای اسلات: ${e.message}`,
+          });
+        }
+        return;
+      }
+
+      // Admin Day Number Navigation
+      if (data.startsWith("admin_day:")) {
+        if (!isBotAdmin(from.id)) {
+          await callTelegramApi(token, "answerCallbackQuery", {
+            callback_query_id: callbackId,
+            text: "⛔️ دسترسی غیرمجاز.",
+            show_alert: true,
+          });
+          return;
+        }
+        const action = data.split(":")[1];
+        const curr = getSchedulerStatus().currentDayNumber;
+        const next = action === "plus" ? (curr >= 90 ? 1 : curr + 1) : (curr <= 1 ? 90 : curr - 1);
+        updateSchedulerConfig({ currentDayNumber: next });
+        await callTelegramApi(token, "answerCallbackQuery", {
+          callback_query_id: callbackId,
+          text: `📅 روز دوره به روز ${next} تغییر یافت.`,
+        });
+        const panelMsg = formatAdminPanelMessage(from.id);
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: panelMsg.text,
+          parse_mode: "HTML",
+          reply_markup: panelMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Admin Re-sync Menu
+      if (data === "admin_sync_menu") {
+        if (!isBotAdmin(from.id)) {
+          await callTelegramApi(token, "answerCallbackQuery", {
+            callback_query_id: callbackId,
+            text: "⛔️ دسترسی غیرمجاز.",
+            show_alert: true,
+          });
+          return;
+        }
+        await callTelegramApi(token, "answerCallbackQuery", {
+          callback_query_id: callbackId,
+          text: "🔄 در حال ثبت دستورات و منو در سرور تلگرام...",
+        });
+        const initRes = await initializeBotCommands(token);
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: initRes.ok
+            ? `✅ <b>منوی ربات و دستورات با موفقیت در تلگرام به‌روزرسانی شد!</b>\nدکمه Menu کنار کادر چت و کیبورد سریع فعال است.`
+            : `❌ خطا در ثبت منو: ${initRes.error}`,
+          parse_mode: "HTML",
+          reply_markup: getPersistentKeyboardForUser(from.id),
         });
         return;
       }
@@ -954,6 +1338,56 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         lastName: from.last_name,
         username: from.username,
       });
+
+      // Document Upload Handling (Restore from Backup JSON)
+      if (msg.document) {
+        if (isBotAdmin(from.id)) {
+          const doc = msg.document;
+          const fileName = (doc.file_name || "").toLowerCase();
+          if (fileName.endsWith(".json") || doc.mime_type === "application/json") {
+            await callTelegramApi(token, "sendMessage", {
+              chat_id: chatId,
+              text: `⏳ <b>در حال دانلود و اعتبارسنجی فایل پشتیبان...</b>`,
+              parse_mode: "HTML",
+            });
+            try {
+              const fileInfo = await callTelegramApi(token, "getFile", { file_id: doc.file_id });
+              if (fileInfo.ok && fileInfo.result?.file_path) {
+                const downloadUrl = `https://api.telegram.org/file/bot${token}/${fileInfo.result.file_path}`;
+                const fileRes = await fetch(downloadUrl, { signal: AbortSignal.timeout(30000) });
+                const fileText = await fileRes.text();
+                const parsedData = JSON.parse(fileText);
+                const restoreRes = await restoreSystemFromBackup(parsedData);
+
+                await callTelegramApi(token, "sendMessage", {
+                  chat_id: chatId,
+                  text: restoreRes.ok
+                    ? `✅ <b>فایل پشتیبان با موفقیت بازگردانی شد!</b>\n\n` +
+                      `👥 <b>تعداد کاربران فعال‌شده:</b> ${restoreRes.usersCount} نفر\n` +
+                      `📅 <b>روز دوره:</b> روز ${getSchedulerStatus().currentDayNumber} از ۹۰\n` +
+                      `⚙️ تمامی تنظیمات و کارنامه‌ها بدون افت کیفیت فعال گردیدند.`
+                    : `❌ <b>خطا در بازیابی:</b> ${restoreRes.message}`,
+                  parse_mode: "HTML",
+                  reply_markup: getPersistentKeyboardForUser(from.id),
+                });
+                return;
+              } else {
+                await callTelegramApi(token, "sendMessage", {
+                  chat_id: chatId,
+                  text: `❌ خطا در دریافت مسیر فایل از تلگرام: ${fileInfo.description || "مسیر نامعتبر"}`,
+                });
+                return;
+              }
+            } catch (err: any) {
+              await callTelegramApi(token, "sendMessage", {
+                chat_id: chatId,
+                text: `❌ خطا در خواندن یا پردازش فایل JSON: ${err.message}`,
+              });
+              return;
+            }
+          }
+        }
+      }
 
       // Handle /start (with optional deep-linking: /start quiz_5)
       if (text.startsWith("/start")) {
@@ -1005,7 +1439,7 @@ export async function processTelegramUpdate(token: string, update: any, currentD
           chat_id: chatId,
           text: `✨ <b>منوی دسترسی سریع ربات فعال شد.</b>\nمی‌توانید از دکمه‌های زیر کادر چت یا دکمه‌های شیشه‌ای زیر استفاده نمایید:`,
           parse_mode: "HTML",
-          reply_markup: BOT_PERSISTENT_REPLY_KEYBOARD,
+          reply_markup: getPersistentKeyboardForUser(from.id),
         });
 
         const menuMsg = formatMainMenuMessage(user);
@@ -1015,6 +1449,61 @@ export async function processTelegramUpdate(token: string, update: any, currentD
           parse_mode: "HTML",
           reply_markup: menuMsg.reply_markup,
         });
+        return;
+      }
+
+      // Handle Admin Panel trigger (/admin or keyboard button)
+      if (
+        text === "/admin" ||
+        text === "👑 پنل مدیریت ادمین ⚙️" ||
+        text === "پنل مدیریت ادمین" ||
+        text === "پنل مدیریت" ||
+        text === "ادمین" ||
+        text === "مدیریت"
+      ) {
+        if (!isBotAdmin(from.id)) {
+          await callTelegramApi(token, "sendMessage", {
+            chat_id: chatId,
+            text: `⛔️ <b>دسترسی غیرمجاز:</b> این دستور منحصراً مختص مدیر سامانه حسابداری است.`,
+            parse_mode: "HTML",
+            reply_markup: getPersistentKeyboardForUser(from.id),
+          });
+          return;
+        }
+        const panelMsg = formatAdminPanelMessage(from.id);
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: panelMsg.text,
+          parse_mode: "HTML",
+          reply_markup: panelMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Handle Backup trigger (/backup or keyboard button)
+      if (
+        text === "/backup" ||
+        text === "📦 دریافت آنی بکاپ 💾" ||
+        text === "دریافت آنی بکاپ" ||
+        text === "دریافت بکاپ" ||
+        text === "پشتیبان" ||
+        text === "بکاپ"
+      ) {
+        if (!isBotAdmin(from.id)) {
+          await callTelegramApi(token, "sendMessage", {
+            chat_id: chatId,
+            text: `⛔️ <b>دسترسی غیرمجاز:</b> دریافت فایل پشتیبان منحصراً مختص مدیر سامانه است.`,
+            parse_mode: "HTML",
+            reply_markup: getPersistentKeyboardForUser(from.id),
+          });
+          return;
+        }
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: `⏳ <b>در حال آماده‌سازی و ارسال فایل پشتیبان جامع سیستم...</b>`,
+          parse_mode: "HTML",
+        });
+        await sendBackupToChat(token, chatId);
         return;
       }
 
@@ -1041,7 +1530,7 @@ export async function processTelegramUpdate(token: string, update: any, currentD
           chat_id: chatId,
           text: `🏠 <b>منوی اصلی ربات حسابداری:</b>`,
           parse_mode: "HTML",
-          reply_markup: BOT_PERSISTENT_REPLY_KEYBOARD,
+          reply_markup: getPersistentKeyboardForUser(from.id),
         });
 
         const menuMsg = formatMainMenuMessage(user);
@@ -1176,7 +1665,9 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         helpText += `🔹 /bank : مشاهده بانک ۹۰ روز آزمون دوره\n`;
         helpText += `🔹 /karname : مشاهده کارنامه، درصد قبولی و رتبه\n`;
         helpText += `🔹 /rank : جدول رتبه‌بندی نخبگان و برترین‌ها\n`;
-        helpText += `🔹 /lesson : مشاهده آموزش مفهومی و سند دوبل روز\n\n`;
+        helpText += `🔹 /lesson : مشاهده آموزش مفهومی و سند دوبل روز\n`;
+        helpText += `🔹 /admin : پنل مدیریت و دریافت بکاپ\n`;
+        helpText += `🔹 /backup : دریافت فایل پشتیبان سیستم\n\n`;
         helpText += `✨ <i>تمامی آزمون‌ها با دکمه‌های شیشه‌ای تعاملی قابل انجام بوده و سوابق شما اختصاصی ذخیره می‌شود.</i>`;
 
         const inlineKeyboard = [
@@ -1200,7 +1691,7 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         chat_id: chatId,
         text: `✨ <b>منوی اصلی ربات:</b>`,
         parse_mode: "HTML",
-        reply_markup: BOT_PERSISTENT_REPLY_KEYBOARD,
+        reply_markup: getPersistentKeyboardForUser(from.id),
       });
 
       const menuMsg = formatMainMenuMessage(user);
@@ -1220,7 +1711,7 @@ let pollingError = "";
 let lastActiveTimestamp = "";
 let totalUpdatesCount = 0;
 
-// Start Long Polling Engine for Telegram Bot
+// Start Long Polling Engine for Telegram Bot with Supervisor
 export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGetter: () => number) {
   if (isPollingActive) return;
   isPollingActive = true;
@@ -1232,10 +1723,9 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
     let commandsRegistered = false;
 
     while (isPollingActive) {
-      const token = (tokenGetter() || loadServerBotConfig().telegramToken || "").trim();
+      const token = sanitizeValue(tokenGetter() || loadServerBotConfig().telegramToken);
       if (!token) {
         pollingError = "توکن تلگرام تنظیم نشده است";
-        // Sleep 5s if token not configured yet
         await new Promise((resolve) => setTimeout(resolve, 5000));
         continue;
       }
@@ -1243,6 +1733,9 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
       try {
         // Register Telegram Bot commands and menu button once
         if (!commandsRegistered) {
+          try {
+            await callTelegramApi(token, "deleteWebhook", { drop_pending_updates: false });
+          } catch (_w) {}
           const initRes = await initializeBotCommands(token);
           if (initRes.ok) {
             commandsRegistered = true;
@@ -1252,7 +1745,7 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
           }
         }
 
-        // First, ensure we have bot username
+        // Ensure we have bot username
         if (!botUsername) {
           try {
             const meRes = await fetch(`https://api.telegram.org/bot${token}/getMe`);
@@ -1266,8 +1759,23 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
           }
         }
 
-        const url = `https://api.telegram.org/bot${token}/getUpdates?offset=${lastUpdateId + 1}&timeout=20&allowed_updates=["message","callback_query"]`;
-        const res = await fetch(url, { signal: pollingAbortController?.signal });
+        const pollBody: Record<string, any> = {
+          timeout: 20,
+          allowed_updates: ["message", "callback_query"],
+        };
+        if (lastUpdateId > 0) {
+          pollBody.offset = lastUpdateId + 1;
+        } else {
+          // On fresh start, pull last 10 updates so pending /start or /menu is processed immediately
+          pollBody.offset = -10;
+        }
+
+        const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(pollBody),
+          signal: AbortSignal.timeout(35000),
+        });
         const data = await res.json();
 
         if (data.ok && Array.isArray(data.result)) {
@@ -1277,36 +1785,40 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
           for (const update of data.result) {
             lastUpdateId = Math.max(lastUpdateId, update.update_id);
             totalUpdatesCount++;
-            // Process update asynchronously
             processTelegramUpdate(token, update, currentDay).catch((e) =>
               console.error("Error handling update in loop:", e)
             );
           }
         } else if (!data.ok) {
           pollingError = data.description || `Telegram Error ${data.error_code}`;
-          // In case of conflict with another webhook or rate limit
           if (data.error_code === 409) {
-            // Webhook conflict, delete webhook to allow getUpdates
             try {
               await fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=false`);
             } catch (ignore) {}
           }
-          await new Promise((resolve) => setTimeout(resolve, 5000));
+          await new Promise((resolve) => setTimeout(resolve, 3000));
         }
       } catch (err: any) {
         if (err.name !== "AbortError") {
           pollingError = err.message || "خطای اتصال به سرور تلگرام";
-          // Network hiccup, wait 5s before reconnecting
-          await new Promise((resolve) => setTimeout(resolve, 5000));
+          await new Promise((resolve) => setTimeout(resolve, 3000));
         }
       }
     }
   }
 
-  pollLoop().catch((err) => {
-    console.error("Telegram long-polling loop terminated with error:", err);
-    isPollingActive = false;
-  });
+  async function supervisor() {
+    while (isPollingActive) {
+      try {
+        await pollLoop();
+      } catch (fatal) {
+        console.error("[TelegramPolling] Unexpected loop failure, auto-restarting in 2s:", fatal);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  }
+
+  supervisor();
 }
 
 // Notify token changed or re-register menu
