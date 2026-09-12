@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { getOrCreateDayItem, initialThreeMonthCurriculum } from "./src/data/threeMonthCurriculum";
 import { initialDailyQuizzes } from "./src/data/quizData";
+import { practicalJournalScenarios, JournalScenario, JournalArticle } from "./src/data/journalScenarios";
 import { loadServerBotConfig, saveServerBotConfig, sanitizeValue } from "./serverBotConfig";
 import { getSchedulerStatus, updateSchedulerConfig, executeSlot } from "./serverScheduler";
 
@@ -16,6 +17,13 @@ export interface TelegramQuizAnswer {
   attempts: number;
 }
 
+export interface TelegramJournalAnswer {
+  scenarioId: string;
+  isCorrect: boolean;
+  score: number;
+  answeredAt: string;
+}
+
 export interface TelegramBotUser {
   userId: number;
   firstName: string;
@@ -23,13 +31,25 @@ export interface TelegramBotUser {
   username?: string;
   firstSeenAt: string;
   lastActiveAt: string;
-  totalScore: number; // 10 points per correct quiz
+  totalScore: number; // 10 points per quiz + 20 points per journal entry
   totalAnswered: number;
   correctCount: number;
   wrongCount: number;
   streakDays: number;
   answers: Record<string, TelegramQuizAnswer>; // key: dayNumber as string
+  journalAnswers?: Record<string, TelegramJournalAnswer>; // key: scenarioId as string
 }
+
+export interface UserSessionState {
+  mode: "none" | "awaiting_feedback" | "journal_active" | "admin_replying";
+  scenarioId?: string;
+  draftArticles?: { accountName: string; side: "debit" | "credit"; amount: number }[];
+  replyToUserId?: number;
+  lastUpdated: number;
+}
+
+export const userSessionStates = new Map<number, UserSessionState>();
+
 
 export interface BotUserDatabase {
   users: Record<string, TelegramBotUser>; // key: userId as string
@@ -490,18 +510,18 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
     text += `\n👇 <b>لطفاً یکی از گزینه‌های شیشه‌ای زیر را لمس کنید:</b>`;
   }
 
-  // Inline Keyboard Buttons (دکمه‌های شیشه‌ای رنگی با قابلیت style تلگرام)
+  // Inline Keyboard Buttons (دکمه‌های شیشه‌ای رنگی با دکمه‌های گزینه‌ای استاندارد و بدون افشای پاسخ قبل از کلیک)
   const inlineKeyboard: any[][] = [];
 
   if (!userAnswer) {
-    // 4 option buttons with style colors (primary: آبی, success: سبز, danger: قرمز)
+    // 4 option buttons with neutral style to prevent accidental giveaways
     inlineKeyboard.push([
-      { text: `🔵 ۱) گزینه یک`, callback_data: `q_ans:${dayNumber}:0`, style: "primary" },
-      { text: `🟢 ۲) گزینه دو`, callback_data: `q_ans:${dayNumber}:1`, style: "success" },
+      { text: `1️⃣ گزینه ۱`, callback_data: `q_ans:${dayNumber}:0`, style: "primary" },
+      { text: `2️⃣ گزینه ۲`, callback_data: `q_ans:${dayNumber}:1`, style: "primary" },
     ]);
     inlineKeyboard.push([
-      { text: `🟡 ۳) گزینه سه`, callback_data: `q_ans:${dayNumber}:2`, style: "primary" },
-      { text: `🟣 ۴) گزینه چهار`, callback_data: `q_ans:${dayNumber}:3`, style: "danger" },
+      { text: `3️⃣ گزینه ۳`, callback_data: `q_ans:${dayNumber}:2`, style: "primary" },
+      { text: `4️⃣ گزینه ۴`, callback_data: `q_ans:${dayNumber}:3`, style: "primary" },
     ]);
   } else {
     // Nav buttons after answering
@@ -522,23 +542,27 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
 
   // Utility row with rich icons and background styles
   inlineKeyboard.push([
+    { text: `📑 کارگاه ثبت سند دستی ✍️`, callback_data: `sanad_list`, style: "success" },
     { text: `🏆 کارنامه و رتبه من ⭐️`, callback_data: `my_stats`, style: "success" },
-    { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
   ]);
   inlineKeyboard.push([
-    { text: `🥇 جدول رتبه‌بندی نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
+    { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
+    { text: `🥇 جدول نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
+  ]);
+  inlineKeyboard.push([
     { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
   ]);
 
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
 }
 
-// Persistent Reply Keyboard for Telegram Chat Bar (منوی زیر کادر چت با قابلیت جمع‌شدن خودکار)
+// Persistent Reply Keyboard for Telegram Chat Bar (منوی زیر کادر چت با دسترسی آسان به ثبت سند و انتقادات)
 export const BOT_PERSISTENT_REPLY_KEYBOARD = {
   keyboard: [
-    [{ text: "📝 آزمون تستی امروز" }, { text: "🏆 کارنامه و رتبه من" }],
-    [{ text: "📚 بانک ۹۰ آزمون دوره" }, { text: "🥇 جدول نخبگان" }],
-    [{ text: "📖 درس و آموزش امروز" }, { text: "❓ راهنما و پشتیبانی" }],
+    [{ text: "📝 آزمون تستی امروز" }, { text: "📑 کارگاه ثبت سند دستی ✍️" }],
+    [{ text: "📚 بانک ۹۰ آزمون دوره" }, { text: "🏆 کارنامه و رتبه من" }],
+    [{ text: "📖 درس و آموزش امروز" }, { text: "📩 انتقاد، پیشنهاد و نظرات" }],
+    [{ text: "🥇 جدول نخبگان" }, { text: "❓ راهنما و دستورات" }],
   ],
   resize_keyboard: true,
   is_persistent: false,
@@ -550,10 +574,11 @@ export function getPersistentKeyboardForUser(userIdOrChatId: number | string) {
   if (isBotAdmin(userIdOrChatId)) {
     return {
       keyboard: [
-        [{ text: "📝 آزمون تستی امروز" }, { text: "📚 بانک ۹۰ آزمون دوره" }],
-        [{ text: "🏆 کارنامه و رتبه من" }, { text: "📖 درس و آموزش امروز" }],
+        [{ text: "📝 آزمون تستی امروز" }, { text: "📑 کارگاه ثبت سند دستی ✍️" }],
+        [{ text: "📚 بانک ۹۰ آزمون دوره" }, { text: "🏆 کارنامه و رتبه من" }],
+        [{ text: "📖 درس و آموزش امروز" }, { text: "📩 انتقاد، پیشنهاد و نظرات" }],
         [{ text: "👑 پنل مدیریت ادمین ⚙️" }, { text: "📦 دریافت آنی بکاپ 💾" }],
-        [{ text: "🏠 منوی اصلی ربات" }, { text: "❓ راهنما و پشتیبانی" }],
+        [{ text: "🏠 منوی اصلی ربات" }, { text: "❓ راهنما و دستورات" }],
       ],
       resize_keyboard: true,
       is_persistent: false,
@@ -577,14 +602,16 @@ export async function initializeBotCommands(token: string) {
     await callTelegramApi(token, "setMyCommands", {
       commands: [
         { command: "start", description: "🏠 منوی اصلی و شروع ربات" },
+        { command: "sanad", description: "📑 کارگاه عملی ثبت سند دستی" },
         { command: "quiz", description: "📝 آزمون تستی روز جاری" },
         { command: "bank", description: "📚 بانک ۹۰ آزمون دوره" },
         { command: "karname", description: "🏆 کارنامه، امتیاز و رتبه من" },
         { command: "rank", description: "🥇 جدول رتبه‌بندی نخبگان" },
         { command: "lesson", description: "📖 درس و سرفصل آموزشی امروز" },
+        { command: "feedback", description: "📩 ارسال انتقاد، نظر یا پیشنهاد به ادمین" },
         { command: "admin", description: "👑 پنل مدیریت و دریافت بکاپ" },
         { command: "backup", description: "📦 دریافت فایل پشتیبان سیستم" },
-        { command: "help", description: "❓ راهنما و پشتیبانی" },
+        { command: "help", description: "❓ راهنما و دستورات" },
       ],
     });
 
@@ -753,15 +780,15 @@ export function formatLeaderboardMessage(currentUserId: number) {
 // Format Main Welcome Menu
 export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: string) {
   let text = `👋 سلام <b>${user.firstName}</b> عزیز،\n`;
-  text += `به <b>ربات جامع آموزش و آزمون‌های تخصصی حسابداری و مالیات ایران</b> خوش آمدید! 🇮🇷✨\n\n`;
+  text += `به <b>سامانه جامع آموزش، آزمون و کارگاه ثبت سند حسابداری ایران</b> خوش آمدید! 🇮🇷✨\n\n`;
   text += `📌 <b>امکانات سامانه هوشمند:</b>\n`;
-  text += `🔹 شرکت در آزمون‌های تستی روزانه دوره ۳ ماهه با دکمه‌های شیشه‌ای رنگی\n`;
-  text += `🔹 ثبت خودکار و اختصاصی کارنامه و امتیاز برای حساب کاربری شما\n`;
-  text += `🔹 دریافت تحلیل تشریحی با استناد به قوانین مالیاتی و استانداردهای ایران\n`;
-  text += `🔹 مشاهده رتبه و رقابت در جدول نخبگان حسابداری کانال\n\n`;
-  text += `⭐️ <b>امتیاز فعلی شما:</b> ${user.totalScore} امتیاز | 🎯 <b>حل‌شده:</b> ${user.correctCount} از ${user.totalAnswered}\n\n`;
+  text += `🔹 <b>کارگاه عملی ثبت سند دستی:</b> حل مسائل واقعی بازار کار و بررسی خودکار تراز و صحت سند\n`;
+  text += `🔹 <b>آزمون‌های تستی روزانه دوره ۳ ماهه:</b> سوالات استانداردهای حسابداری و قوانین مالیاتی با کلید تصادفی\n`;
+  text += `🔹 <b>کارنامه و رتبه‌بندی:</b> ثبت اختصاصی امتیازات و محاسبه ضریب تسلط\n`;
+  text += `🔹 <b>صندوق انتقادات و پیشنهادات:</b> ارسال مستقیم نظرات و سوالات شما برای ادمین کانال\n\n`;
+  text += `⭐️ <b>امتیاز کل شما:</b> ${user.totalScore} امتیاز | 🎯 <b>تست‌های حل‌شده:</b> ${user.correctCount} از ${user.totalAnswered}\n\n`;
   if (channelSignature) text += `${channelSignature}\n\n`;
-  text += `👇 <b>لطفاً بخش مورد نظر خود را از دکمه‌های زیر یا منوی پایین چت انتخاب کنید:</b>`;
+  text += `👇 <b>لطفاً بخش مورد نظر خود را انتخاب فرمایید:</b>`;
 
   const inlineKeyboard: any[][] = [];
 
@@ -773,6 +800,9 @@ export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: 
 
   inlineKeyboard.push(
     [
+      { text: `📑 🟢 کارگاه عملی ثبت سند دستی ✍️`, callback_data: `sanad_list`, style: "success" },
+    ],
+    [
       { text: `🎯 🟢 شروع آزمون تستی امروز 🎯`, callback_data: `q_today`, style: "success" },
     ],
     [
@@ -780,10 +810,11 @@ export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: 
       { text: `⭐️ 🟡 کارنامه و سوابق من 🏆`, callback_data: `my_stats`, style: "success" },
     ],
     [
-      { text: `💎 🟣 جدول نخبگان و رتبه‌بندی 🥇`, callback_data: `leaderboard`, style: "primary" },
       { text: `☀️ 🟠 درس و آموزش امروز 📖`, callback_data: `q_lesson_today`, style: "primary" },
+      { text: `💎 🟣 جدول نخبگان و رتبه‌بندی 🥇`, callback_data: `leaderboard`, style: "primary" },
     ],
     [
+      { text: `📩 🟣 انتقاد، پیشنهاد و نظرات 💬`, callback_data: `feedback_start`, style: "primary" },
       { text: `💡 🔵 راهنمای دستورات ربات ❓`, callback_data: `help_cmd`, style: "primary" },
     ]
   );
@@ -791,7 +822,371 @@ export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: 
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
 }
 
-// Format Admin Control and Backup Panel
+// ---------------------------------------------------------------------------
+// MANUAL JOURNAL ENTRY WORKSHOP & FEEDBACK LOGIC
+// ---------------------------------------------------------------------------
+
+export function formatTomansFa(val: number): string {
+  return Number(val).toLocaleString("fa-IR") + " تومان";
+}
+
+// Format Journal Voucher Diagram (شمای سند دستی با تفکیک آرتیکل‌های بدهکار و بستانکار)
+export function formatJournalVoucherDiagram(
+  lines: { accountName: string; side: "debit" | "credit"; amount: number }[],
+  isBalanced: boolean,
+  totalDebit: number,
+  totalCredit: number,
+  isCorrect?: boolean
+): string {
+  if (!lines || lines.length === 0) {
+    return `<i>(هنوز ردیف یا آرتیکلی به این سند اضافه نشده است)</i>\n`;
+  }
+
+  let out = `<b>📜 شمای سند حسابداری تنظیمی:</b>\n`;
+  out += `<pre>\n`;
+  out += `┌───┬─────────────────────────┬───────────────┬───────┐\n`;
+  out += `│رد │ شرح حساب / معین         │ بدهکار (تومان)│بستانکار│\n`;
+  out += `├───┼─────────────────────────┼───────────────┼───────┤\n`;
+
+  lines.forEach((l, idx) => {
+    const rIdx = (idx + 1).toString().padEnd(2);
+    const acc = (l.side === "debit" ? "🔹 " : "  🔸 ") + l.accountName;
+    const shortAcc = acc.length > 22 ? acc.slice(0, 20) + ".." : acc.padEnd(23);
+    const debStr = l.side === "debit" ? l.amount.toLocaleString("en-US").padEnd(13) : "-".padEnd(13);
+    const credStr = l.side === "credit" ? l.amount.toLocaleString("en-US").padEnd(7) : "-";
+    out += `│${rIdx} │ ${shortAcc} │ ${debStr} │${credStr}│\n`;
+  });
+
+  out += `├───┴─────────────────────────┼───────────────┼───────┤\n`;
+  out += `│ جمع کل بدهکار: ${totalDebit.toLocaleString("en-US")} ت\n`;
+  out += `│ جمع کل بستانکار: ${totalCredit.toLocaleString("en-US")} ت\n`;
+  out += `│ تراز سند: ${isBalanced ? "✅ تراز است (موازنه)" : "❌ نامتراز (اختلاف: " + Math.abs(totalDebit - totalCredit).toLocaleString("en-US") + " ت)"}\n`;
+  if (isCorrect !== undefined) {
+    out += `│ نتیجه بررسی: ${isCorrect ? "✅ ثبت کاملاً صحیح (+۲۰ امتیاز)" : "❌ نیاز به بازبینی و اصلاح آرتیکل‌ها"}\n`;
+  }
+  out += `└─────────────────────────────────────────────────────┘\n`;
+  out += `</pre>`;
+  return out;
+}
+
+// Evaluate Journal Submission
+export function evaluateJournalSubmission(
+  scenario: JournalScenario,
+  userArticles: { accountName: string; side: "debit" | "credit"; amount: number }[]
+) {
+  let totalDebit = 0;
+  let totalCredit = 0;
+  userArticles.forEach((a) => {
+    if (a.side === "debit") totalDebit += a.amount;
+    else totalCredit += a.amount;
+  });
+
+  const isBalanced = totalDebit > 0 && totalDebit === totalCredit;
+
+  let allMatched = true;
+  if (userArticles.length < scenario.requiredArticles.length) {
+    allMatched = false;
+  } else {
+    for (const req of scenario.requiredArticles) {
+      const found = userArticles.find((u) => {
+        const sideMatches = u.side === req.side;
+        const amountMatches = Math.abs(u.amount - req.amount) < 100;
+        const nameMatches =
+          u.accountName === req.accountName ||
+          req.synonyms.some((s) => u.accountName.toLowerCase().includes(s.toLowerCase()));
+        return sideMatches && amountMatches && nameMatches;
+      });
+      if (!found) {
+        allMatched = false;
+        break;
+      }
+    }
+  }
+
+  const isCorrect = isBalanced && allMatched;
+
+  return {
+    isBalanced,
+    isCorrect,
+    totalDebit,
+    totalCredit,
+    articleCount: userArticles.length,
+    requiredCount: scenario.requiredArticles.length,
+  };
+}
+
+// Record Journal Success & Update User Total Score
+export function recordJournalSuccess(
+  userId: number,
+  scenarioId: string,
+  userMeta: { firstName: string; lastName?: string; username?: string }
+): { isFirstTimeCorrect: boolean; user: TelegramBotUser } {
+  const db = loadUserDatabase();
+  const user = getOrCreateBotUser(userId, userMeta);
+
+  if (!user.journalAnswers) user.journalAnswers = {};
+
+  const prevAnswer = user.journalAnswers[scenarioId];
+  let isFirstTimeCorrect = false;
+
+  if (!prevAnswer || !prevAnswer.isCorrect) {
+    isFirstTimeCorrect = true;
+    user.totalScore = (user.totalScore || 0) + 20; // 20 points for correct journal entry
+  }
+
+  user.journalAnswers[scenarioId] = {
+    scenarioId,
+    isCorrect: true,
+    score: 20,
+    answeredAt: new Date().toISOString(),
+  };
+
+  user.lastActiveAt = new Date().toISOString();
+  saveUserDatabase(db);
+
+  return { isFirstTimeCorrect, user };
+}
+
+// Parse Free Text Journal Entry typed by user
+export function parseFreeTextJournalEntry(text: string, scenario: JournalScenario) {
+  const clean = text.replace(/[،,]/g, " ").replace(/\r/g, "");
+  const rawLines = clean.split(/[\n;/|]+/).map((s) => s.trim()).filter((s) => s.length > 0);
+
+  const parsedArticles: { accountName: string; side: "debit" | "credit"; amount: number }[] = [];
+
+  for (const line of rawLines) {
+    let side: "debit" | "credit" = "debit";
+    const lower = line.toLowerCase();
+    if (
+      lower.includes("بستانکار") ||
+      lower.includes("بس:") ||
+      lower.includes("بس ") ||
+      lower.includes("بستان") ||
+      lower.includes("credit") ||
+      lower.includes("cr")
+    ) {
+      side = "credit";
+    } else if (
+      lower.includes("بدهکار") ||
+      lower.includes("بد:") ||
+      lower.includes("بد ") ||
+      lower.includes("بده") ||
+      lower.includes("debit") ||
+      lower.includes("dr")
+    ) {
+      side = "debit";
+    }
+
+    let amount = 0;
+    const enDigits = line.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)));
+
+    const millionMatch = enDigits.match(/(\d+(?:\.\d+)?)\s*(?:میلیون|میلیارد|م|m)/i);
+    if (millionMatch) {
+      const mult = line.includes("میلیارد") ? 1000000000 : 1000000;
+      amount = Math.round(parseFloat(millionMatch[1]) * mult);
+    } else {
+      const digitsMatch = enDigits.replace(/\s/g, "").match(/(\d{4,})/);
+      if (digitsMatch) {
+        amount = parseInt(digitsMatch[1], 10);
+      }
+    }
+
+    let matchedAccountName = "";
+    for (const req of scenario.requiredArticles) {
+      if (req.synonyms.some((syn) => line.includes(syn) || syn.includes(line.slice(0, 10)))) {
+        matchedAccountName = req.accountName;
+        break;
+      }
+    }
+    if (!matchedAccountName) {
+      for (const opt of scenario.suggestedButtonOptions) {
+        if (opt.synonyms.some((syn) => line.includes(syn))) {
+          matchedAccountName = opt.name;
+          break;
+        }
+      }
+    }
+    if (!matchedAccountName) {
+      matchedAccountName = line.replace(/بدهکار|بستانکار|بد|بس|:|toman|تومان|\d+/g, "").trim() || "سایر حساب‌ها";
+    }
+
+    if (amount === 0) {
+      const matchingReq = scenario.requiredArticles.find((r) => r.accountName === matchedAccountName || r.side === side);
+      if (matchingReq) amount = matchingReq.amount;
+    }
+
+    parsedArticles.push({
+      accountName: matchedAccountName,
+      side,
+      amount,
+    });
+  }
+
+  return parsedArticles;
+}
+
+// Format Journal Scenario Message (شامل متن سناریو، فاکتور، دکمه‌های آرتیکل و شمای سند)
+export function formatJournalScenarioMessage(
+  scenarioId: string,
+  user?: TelegramBotUser,
+  draftArticles: { accountName: string; side: "debit" | "credit"; amount: number }[] = [],
+  evaluationResult?: { isBalanced: boolean; isCorrect: boolean; totalDebit: number; totalCredit: number }
+) {
+  const scenario = practicalJournalScenarios.find((s) => s.id === scenarioId) || practicalJournalScenarios[0];
+  const isSolved = user?.journalAnswers?.[scenario.id]?.isCorrect;
+
+  let text = `📑 <b>کارگاه عملی ثبت سند حسابداری دستی (شماره ${scenario.scenarioNumber})</b>\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `🏷 <b>موضوع:</b> ${scenario.title}\n`;
+  text += `🎯 <b>دسته‌بندی:</b> ${scenario.category} | ⚡️ <b>سطح:</b> ${scenario.difficulty}\n`;
+  if (isSolved) {
+    text += `✅ <b>وضعیت حل:</b> شما قبلاً این سند را به صورت صحیح ثبت و امتیاز آن را دریافت کرده‌اید ⭐️\n`;
+  }
+  text += `\n📖 <b>شرح رویداد مالی / فاکتور کسب‌وکار:</b>\n`;
+  text += `<blockquote>${scenario.story}</blockquote>\n`;
+
+  // Draw current draft or evaluation table
+  let totalDebit = 0;
+  let totalCredit = 0;
+  draftArticles.forEach((a) => {
+    if (a.side === "debit") totalDebit += a.amount;
+    else totalCredit += a.amount;
+  });
+  const isBalanced = totalDebit > 0 && totalDebit === totalCredit;
+
+  if (draftArticles.length > 0) {
+    text += `\n${formatJournalVoucherDiagram(
+      draftArticles,
+      evaluationResult ? evaluationResult.isBalanced : isBalanced,
+      totalDebit,
+      totalCredit,
+      evaluationResult ? evaluationResult.isCorrect : undefined
+    )}\n`;
+  }
+
+  if (evaluationResult) {
+    if (evaluationResult.isCorrect) {
+      text += `🎉 <b>تبریک! سند حسابداری شما کاملاً صحیح، متوازن و طبق استانداردهای حسابداری است. (+۲۰ امتیاز)</b>\n\n`;
+      text += `💡 <b>تحلیل علمی و علل بدهکار/بستانکار شدن حساب‌ها:</b>\n<blockquote>${scenario.explanation}</blockquote>\n\n`;
+      text += `⚡️ <b>نکته مالیاتی / قانون تجارت:</b>\n<blockquote>${scenario.standardTip}</blockquote>\n`;
+    } else {
+      text += `❌ <b>سند شما نیاز به اصلاح دارد:</b>\n`;
+      if (!evaluationResult.isBalanced) {
+        text += `⚠️ جمع ستون بدهکار با بستانکار تراز نیست (قانون تعادل سند دوبل).\n`;
+      } else {
+        text += `⚠️ مبالغ تراز است اما سرفصل‌های انتخابی یا طرفین بدهکار/بستانکار منطبق بر رویداد نیست.\n`;
+      }
+      text += `💡 <i>می‌توانید با دکمه «🔄 ریست و تلاش مجدد» سند را ویرایش کنید یا دکمه «👁 پاسخ تشریحی» را لمس کنید.</i>\n`;
+    }
+  } else if (draftArticles.length === 0) {
+    text += `✍️ <b>روش‌های ثبت سند:</b>\n`;
+    text += `۱️⃣ <b>تایپ در چت:</b> می‌توانید سند را به صورت متن در همین چت ارسال کنید. مثال:\n`;
+    text += `<code>بدهکار: اثاثه ۵۰ میلیون\nبستانکار: بانک ۲۰ میلیون\nبستانکار: چک ۳۰ میلیون</code>\n\n`;
+    text += `۲️⃣ <b>دکمه‌های شیشه‌ای:</b> یا با لمس دکمه‌های رنگی زیر آرتیکل‌های مورد نظر را اضافه و سپس دکمه بررسی را لمس کنید.\n`;
+  }
+
+  // Build inline keyboard
+  const inlineKeyboard: any[][] = [];
+
+  // Options row for quick adding
+  const optionButtons: any[] = [];
+  scenario.suggestedButtonOptions.forEach((opt, idx) => {
+    const sideFa = opt.suggestedSide === "debit" ? "بد" : "بس";
+    const amountStr = (opt.amount / 1000000).toString() + "M";
+    optionButtons.push({
+      text: `➕ ${sideFa}: ${opt.name.slice(0, 12)} (${amountStr})`,
+      callback_data: `sanad_add:${scenario.id}:${opt.suggestedSide}:${idx}`,
+      style: opt.suggestedSide === "debit" ? "primary" : "success",
+    });
+  });
+
+  // Group option buttons in rows of 2
+  for (let i = 0; i < optionButtons.length; i += 2) {
+    inlineKeyboard.push(optionButtons.slice(i, i + 2));
+  }
+
+  // Action buttons
+  if (draftArticles.length > 0) {
+    inlineKeyboard.push([
+      { text: `✅ بررسی و ثبت نهایی سند ⚖️`, callback_data: `sanad_eval:${scenario.id}`, style: "success" },
+      { text: `🔄 پاک‌کردن و ریست سند 🔁`, callback_data: `sanad_reset:${scenario.id}`, style: "danger" },
+    ]);
+  }
+
+  inlineKeyboard.push([
+    { text: `👁 مشاهده پاسخ تشریحی و استاندارد 💡`, callback_data: `sanad_solution:${scenario.id}`, style: "primary" },
+  ]);
+
+  // Navigation rows
+  const navRow: any[] = [];
+  const currentIdx = practicalJournalScenarios.findIndex((s) => s.id === scenario.id);
+  if (currentIdx > 0) {
+    const prevId = practicalJournalScenarios[currentIdx - 1].id;
+    navRow.push({ text: `⬅️ سناریوی قبلی (${currentIdx})`, callback_data: `sanad_view:${prevId}`, style: "primary" });
+  }
+  if (currentIdx < practicalJournalScenarios.length - 1) {
+    const nextId = practicalJournalScenarios[currentIdx + 1].id;
+    navRow.push({ text: `سناریوی بعدی (${currentIdx + 2}) ➡️`, callback_data: `sanad_view:${nextId}`, style: "primary" });
+  }
+  if (navRow.length > 0) inlineKeyboard.push(navRow);
+
+  inlineKeyboard.push([
+    { text: `📚 فهرست ۱۰ سناریوی کارگاه ⚡️`, callback_data: `sanad_list`, style: "primary" },
+    { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
+  ]);
+  inlineKeyboard.push([
+    { text: `🏠 بازگشت به منوی اصلی 📌`, callback_data: `main_menu`, style: "primary" },
+  ]);
+
+  return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+}
+
+// Format Journal Scenarios List (فهرست ۱۰ سناریوی کاربردی کارگاه سند)
+export function formatJournalListMessage(user?: TelegramBotUser) {
+  let text = `📑 <b>کارگاه جامع ثبت سند دوبل حسابداری (۱۰ سناریوی کاربردی)</b>\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `💡 در این بخش سناریوهای واقعی و روزمره شرکت‌ها (خرید، فروش، اجاره، حقوق، ارزش افزوده و ...) ارائه شده است.\n`;
+  text += `شما می‌توانید سند دستی مربوطه را ثبت و تراز نمایید تا ربات به صورت هوشمند آن را ارزیابی کند.\n\n`;
+  text += `👇 <b>یکی از سناریوهای زیر را جهت شروع انتخاب فرمایید:</b>\n`;
+
+  const inlineKeyboard: any[][] = [];
+
+  practicalJournalScenarios.forEach((sc) => {
+    const isSolved = user?.journalAnswers?.[sc.id]?.isCorrect;
+    const statusIcon = isSolved ? "✅" : "🔵";
+    const statusText = isSolved ? "(حل‌شده)" : "";
+    inlineKeyboard.push([
+      {
+        text: `${statusIcon} سناریو ${sc.scenarioNumber}: ${sc.title.slice(0, 32)} ${statusText}`,
+        callback_data: `sanad_view:${sc.id}`,
+        style: isSolved ? "success" : "primary",
+      },
+    ]);
+  });
+
+  inlineKeyboard.push([
+    { text: `🏆 کارنامه و امتیازات من ⭐️`, callback_data: `my_stats`, style: "success" },
+    { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
+  ]);
+
+  return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+}
+
+// Format Feedback Start Prompt
+export function formatFeedbackPromptMessage() {
+  let text = `📩 <b>صندوق انتقادات، پیشنهادات و نظرات شما</b>\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `💬 کاربران گرامی، نظرات، پیشنهادات، گزارش خطا و سوالات شما مستقیماً برای مدیر کانال ارسال می‌گردد.\n\n`;
+  text += `✍️ <b>لطفاً پیام، نظر یا انتقاد خود را در قالب یک متن در همین چت تایپ و ارسال فرمایید:</b>\n`;
+  text += `<i>(برای انصراف دکمه زیر را لمس کنید)</i>`;
+
+  const inlineKeyboard = [
+    [{ text: `❌ انصراف و بازگشت به منو`, callback_data: `main_menu`, style: "danger" }],
+  ];
+
+  return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
+}
+
 export function formatAdminPanelMessage(fromId: number | string) {
   const stats = getAllBotUsersStats();
   const scheduler = getSchedulerStatus();
@@ -1045,18 +1440,19 @@ export async function processTelegramUpdate(token: string, update: any, currentD
 
         const inlineKeyboard = [
           [
-            { text: `🔵 1️⃣ گزینه ۱`, callback_data: `q_ans:${day}:0`, style: "primary" },
-            { text: `🟢 2️⃣ گزینه ۲`, callback_data: `q_ans:${day}:1`, style: "success" },
+            { text: `1️⃣ گزینه ۱`, callback_data: `q_ans:${day}:0`, style: "primary" },
+            { text: `2️⃣ گزینه ۲`, callback_data: `q_ans:${day}:1`, style: "primary" },
           ],
           [
-            { text: `🟡 3️⃣ گزینه ۳`, callback_data: `q_ans:${day}:2`, style: "primary" },
-            { text: `🟣 4️⃣ گزینه ۴`, callback_data: `q_ans:${day}:3`, style: "danger" },
+            { text: `3️⃣ گزینه ۳`, callback_data: `q_ans:${day}:2`, style: "primary" },
+            { text: `4️⃣ گزینه ۴`, callback_data: `q_ans:${day}:3`, style: "primary" },
           ],
           [
+            { text: `📑 کارگاه ثبت سند ✍️`, callback_data: `sanad_list`, style: "success" },
             { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
-            { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
           ],
           [
+            { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
             { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
           ],
         ];
@@ -1067,6 +1463,265 @@ export async function processTelegramUpdate(token: string, update: any, currentD
           text,
           parse_mode: "HTML",
           reply_markup: { inline_keyboard: inlineKeyboard },
+        });
+        return;
+      }
+
+      // ---------------------------------------------------------------
+      // JOURNAL WORKSHOP CALLBACKS (ثبت سند دستی تعاملی)
+      // ---------------------------------------------------------------
+
+      // Show list of 10 journal scenarios
+      if (data === "sanad_list") {
+        await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
+        const listMsg = formatJournalListMessage(user);
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: listMsg.text,
+          parse_mode: "HTML",
+          reply_markup: listMsg.reply_markup,
+        });
+        return;
+      }
+
+      // View specific journal scenario (sanad_view:SCENARIO_ID)
+      if (data.startsWith("sanad_view:")) {
+        const scenarioId = data.split(":")[1];
+        await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
+        
+        userSessionStates.set(from.id, {
+          mode: "journal_active",
+          scenarioId,
+          draftArticles: [],
+          lastUpdated: Date.now(),
+        });
+
+        const scenarioMsg = formatJournalScenarioMessage(scenarioId, user, []);
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: scenarioMsg.text,
+          parse_mode: "HTML",
+          reply_markup: scenarioMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Add article to draft voucher via inline buttons (sanad_add:SCENARIO_ID:SIDE:IDX)
+      if (data.startsWith("sanad_add:")) {
+        const parts = data.split(":");
+        const scenarioId = parts[1];
+        const side = parts[2] as "debit" | "credit";
+        const idx = parseInt(parts[3], 10) || 0;
+
+        const scenario = practicalJournalScenarios.find((s) => s.id === scenarioId) || practicalJournalScenarios[0];
+        const opt = scenario.suggestedButtonOptions[idx] || scenario.suggestedButtonOptions[0];
+
+        let sess = userSessionStates.get(from.id);
+        if (!sess || sess.scenarioId !== scenarioId) {
+          sess = {
+            mode: "journal_active",
+            scenarioId,
+            draftArticles: [],
+            lastUpdated: Date.now(),
+          };
+          userSessionStates.set(from.id, sess);
+        }
+
+        if (!sess.draftArticles) sess.draftArticles = [];
+        sess.draftArticles.push({
+          accountName: opt.name,
+          side: side,
+          amount: opt.amount,
+        });
+        sess.lastUpdated = Date.now();
+
+        await callTelegramApi(token, "answerCallbackQuery", {
+          callback_query_id: callbackId,
+          text: `➕ ردیف ${side === "debit" ? "بدهکار" : "بستانکار"} (${opt.name}) به سند افزوده شد.`,
+        });
+
+        const scenarioMsg = formatJournalScenarioMessage(scenarioId, user, sess.draftArticles);
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: scenarioMsg.text,
+          parse_mode: "HTML",
+          reply_markup: scenarioMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Reset draft articles (sanad_reset:SCENARIO_ID)
+      if (data.startsWith("sanad_reset:")) {
+        const scenarioId = data.split(":")[1];
+        const sess = userSessionStates.get(from.id);
+        if (sess) {
+          sess.draftArticles = [];
+          sess.lastUpdated = Date.now();
+        }
+
+        await callTelegramApi(token, "answerCallbackQuery", {
+          callback_query_id: callbackId,
+          text: "🔄 پیش‌نویس سند پاک شد.",
+        });
+
+        const scenarioMsg = formatJournalScenarioMessage(scenarioId, user, []);
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: scenarioMsg.text,
+          parse_mode: "HTML",
+          reply_markup: scenarioMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Evaluate draft voucher (sanad_eval:SCENARIO_ID)
+      if (data.startsWith("sanad_eval:")) {
+        const scenarioId = data.split(":")[1];
+        const scenario = practicalJournalScenarios.find((s) => s.id === scenarioId) || practicalJournalScenarios[0];
+        const sess = userSessionStates.get(from.id);
+        const articles = sess?.draftArticles || [];
+
+        if (articles.length === 0) {
+          await callTelegramApi(token, "answerCallbackQuery", {
+            callback_query_id: callbackId,
+            text: "⚠️ لطفاً ابتدا با دکمه‌های بالا یا تایپ در چت حداقل یک ردیف به سند اضافه فرمایید.",
+            show_alert: true,
+          });
+          return;
+        }
+
+        const evalRes = evaluateJournalSubmission(scenario, articles);
+
+        if (evalRes.isCorrect) {
+          const recRes = recordJournalSuccess(from.id, scenario.id, {
+            firstName: from.first_name,
+            lastName: from.last_name,
+            username: from.username,
+          });
+
+          await callTelegramApi(token, "answerCallbackQuery", {
+            callback_query_id: callbackId,
+            text: `🎉 تبریک! سند حسابداری کاملاً صحیح و تراز است (+۲۰ امتیاز) ⭐️`,
+            show_alert: true,
+          });
+
+          const scenarioMsg = formatJournalScenarioMessage(scenarioId, recRes.user, articles, evalRes);
+          await callTelegramApi(token, "editMessageText", {
+            chat_id: chatId,
+            message_id: messageId,
+            text: scenarioMsg.text,
+            parse_mode: "HTML",
+            reply_markup: scenarioMsg.reply_markup,
+          });
+          return;
+        } else {
+          await callTelegramApi(token, "answerCallbackQuery", {
+            callback_query_id: callbackId,
+            text: evalRes.isBalanced
+              ? "❌ سند متوازن است اما طرفین حساب یا مبالغ نیاز به اصلاح دارد."
+              : "❌ سند نامتراز است. جمع بدهکار با بستانکار برابر نیست!",
+            show_alert: true,
+          });
+
+          const scenarioMsg = formatJournalScenarioMessage(scenarioId, user, articles, evalRes);
+          await callTelegramApi(token, "editMessageText", {
+            chat_id: chatId,
+            message_id: messageId,
+            text: scenarioMsg.text,
+            parse_mode: "HTML",
+            reply_markup: scenarioMsg.reply_markup,
+          });
+          return;
+        }
+      }
+
+      // Show full solution & standard voucher for scenario (sanad_solution:SCENARIO_ID)
+      if (data.startsWith("sanad_solution:")) {
+        const scenarioId = data.split(":")[1];
+        const scenario = practicalJournalScenarios.find((s) => s.id === scenarioId) || practicalJournalScenarios[0];
+        await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
+
+        let solText = `💡 <b>پاسخ استاندارد و سند دوبل سناریو ${scenario.scenarioNumber}: ${scenario.title}</b>\n`;
+        solText += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+        solText += `${formatJournalVoucherDiagram(
+          scenario.requiredArticles,
+          true,
+          scenario.requiredArticles.filter((a) => a.side === "debit").reduce((s, a) => s + a.amount, 0),
+          scenario.requiredArticles.filter((a) => a.side === "credit").reduce((s, a) => s + a.amount, 0),
+          true
+        )}\n`;
+        solText += `📖 <b>تحلیل علمی رویداد:</b>\n<blockquote>${scenario.explanation}</blockquote>\n\n`;
+        solText += `⚡️ <b>نکته کاربردی استانداردهای حسابداری و قانون تجارت:</b>\n<blockquote>${scenario.standardTip}</blockquote>\n`;
+
+        const inlineKeyboard = [
+          [
+            { text: `✍️ تلاش مجدد برای ثبت این سند`, callback_data: `sanad_view:${scenario.id}`, style: "success" },
+            { text: `📚 سایر سناریوهای کارگاه`, callback_data: `sanad_list`, style: "primary" },
+          ],
+          [
+            { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
+          ],
+        ];
+
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: solText,
+          parse_mode: "HTML",
+          reply_markup: { inline_keyboard: inlineKeyboard },
+        });
+        return;
+      }
+
+      // ---------------------------------------------------------------
+      // FEEDBACK & ADMIN MESSAGING CALLBACKS (انتقادات و پیشنهادات)
+      // ---------------------------------------------------------------
+
+      // Start feedback prompt
+      if (data === "feedback_start") {
+        await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
+        userSessionStates.set(from.id, {
+          mode: "awaiting_feedback",
+          lastUpdated: Date.now(),
+        });
+        const promptMsg = formatFeedbackPromptMessage();
+        await callTelegramApi(token, "editMessageText", {
+          chat_id: chatId,
+          message_id: messageId,
+          text: promptMsg.text,
+          parse_mode: "HTML",
+          reply_markup: promptMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Admin reply to specific user feedback (admin_reply:USER_ID)
+      if (data.startsWith("admin_reply:")) {
+        const targetUserId = parseInt(data.split(":")[1], 10);
+        if (!isBotAdmin(from.id)) {
+          await callTelegramApi(token, "answerCallbackQuery", {
+            callback_query_id: callbackId,
+            text: "⛔️ دسترسی غیرمجاز.",
+            show_alert: true,
+          });
+          return;
+        }
+
+        await callTelegramApi(token, "answerCallbackQuery", { callback_query_id: callbackId });
+        userSessionStates.set(from.id, {
+          mode: "admin_replying",
+          replyToUserId: targetUserId,
+          lastUpdated: Date.now(),
+        });
+
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: `✍️ <b>پاسخ به کاربر:</b> <code>${targetUserId}</code>\nلطفاً متن پاسخ خود را در همین چت تایپ و ارسال فرمایید تا مستقیماً به پیوی کاربر فرستاده شود:`,
+          parse_mode: "HTML",
         });
         return;
       }
@@ -1195,9 +1850,11 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         helpText += `🔹 /stats یا /karname : مشاهده کارنامه، درصد قبولی و رتبه\n`;
         helpText += `🔹 /rank : جدول رتبه‌بندی نخبگان و برترین‌های کانال\n`;
         helpText += `🔹 /lesson : مشاهده آموزش مفهومی و سند دوبل روز\n`;
+        helpText += `🔹 /sanad : کارگاه تعاملی ثبت سند دستی حسابداری\n`;
+        helpText += `🔹 /feedback : ارسال انتقادات، پیشنهادات و نظرات به ادمین\n`;
         helpText += `🔹 /admin : پنل مدیریت و دریافت بکاپ (مخصوص ادمین)\n`;
         helpText += `🔹 /backup : دریافت فوری فایل بکاپ (مخصوص ادمین)\n\n`;
-        helpText += `✨ <i>تمامی آزمون‌ها با دکمه‌های شیشه‌ای تعاملی قابل انجام بوده و سوابق شما اختصاصی ذخیره می‌شود.</i>`;
+        helpText += `✨ <i>تمامی آزمون‌ها و کارگاه ثبت سند با دکمه‌های شیشه‌ای تعاملی قابل انجام بوده و سوابق شما اختصاصی ذخیره می‌شود.</i>`;
 
         const inlineKeyboard = [
           [
@@ -1438,6 +2095,124 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         }
       }
 
+      // Check current user active session state
+      let sess = userSessionStates.get(from.id);
+
+      // Handle Awaiting Feedback state
+      if (sess?.mode === "awaiting_feedback" && text && !text.startsWith("/")) {
+        userSessionStates.set(from.id, { mode: "none", lastUpdated: Date.now() });
+
+        const adminId = loadServerBotConfig().telegramAdminChatId || process.env.TELEGRAM_ADMIN_CHAT_ID;
+        if (adminId) {
+          let adminNotice = `📩 <b>پیام جدید در صندوق انتقادات و پیشنهادات:</b>\n`;
+          adminNotice += `━━━━━━━━━━━━━━━━━━━━\n`;
+          adminNotice += `👤 <b>فرستنده:</b> ${from.first_name} ${from.last_name || ""}\n`;
+          if (from.username) adminNotice += `🏷 <b>آیدی:</b> @${from.username}\n`;
+          adminNotice += `🔢 <b>شناسه عددی کاربر:</b> <code>${from.id}</code>\n`;
+          adminNotice += `📅 <b>زمان:</b> ${new Date().toLocaleTimeString("fa-IR")}\n`;
+          adminNotice += `━━━━━━━━━━━━━━━━━━━━\n`;
+          adminNotice += `💬 <b>متن پیام/پیشنهاد:</b>\n<blockquote>${text}</blockquote>\n\n`;
+          adminNotice += `👇 برای ارسال پاسخ به این کاربر، دکمه زیر را لمس فرمایید:`;
+
+          const inlineKeyboard = [
+            [{ text: `✍️ پاسخ مستقیم به کاربر (${from.first_name})`, callback_data: `admin_reply:${from.id}`, style: "primary" }],
+          ];
+
+          await callTelegramApi(token, "sendMessage", {
+            chat_id: adminId,
+            text: adminNotice,
+            parse_mode: "HTML",
+            reply_markup: { inline_keyboard: inlineKeyboard },
+          });
+        }
+
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: `✅ <b>پیام و نظر ارزشمند شما با موفقیت به مدیریت کانال ارسال شد.</b>\nاز همراهی و توجه شما صمیمانه سپاسگزاریم! 🌸`,
+          parse_mode: "HTML",
+          reply_markup: getPersistentKeyboardForUser(from.id),
+        });
+        return;
+      }
+
+      // Handle Admin Replying to Feedback state
+      if (sess?.mode === "admin_replying" && sess.replyToUserId && isBotAdmin(from.id) && text && !text.startsWith("/")) {
+        const targetUserId = sess.replyToUserId;
+        userSessionStates.set(from.id, { mode: "none", lastUpdated: Date.now() });
+
+        let replyMsg = `📩 <b>پاسخ مدیریت کانال حسابداری و مالیات به نظر/پیام شما:</b>\n`;
+        replyMsg += `━━━━━━━━━━━━━━━━━━━━\n`;
+        replyMsg += `<blockquote>${text}</blockquote>\n\n`;
+        replyMsg += `🌸 با آرزوی موفقیت روزافزون شما در یادگیری حسابداری`;
+
+        const sendRes = await callTelegramApi(token, "sendMessage", {
+          chat_id: targetUserId,
+          text: replyMsg,
+          parse_mode: "HTML",
+        });
+
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: sendRes.ok
+            ? `✅ <b>پاسخ شما با موفقیت برای کاربر ارسال شد.</b> (شناسه: <code>${targetUserId}</code>)`
+            : `❌ خطا در ارسال پاسخ: ${sendRes.description || "نامشخص"}`,
+          parse_mode: "HTML",
+          reply_markup: getPersistentKeyboardForUser(from.id),
+        });
+        return;
+      }
+
+      // Handle Free Text Journal Entry (e.g. بدهکار: اثاثه ۵۰ میلیون / بستانکار: بانک ۲۰ م)
+      const hasJournalKeywords =
+        text.includes("بدهکار") ||
+        text.includes("بستانکار") ||
+        text.includes("بد:") ||
+        text.includes("بس:") ||
+        text.includes("بد ") ||
+        text.includes("بس ");
+
+      if ((sess?.mode === "journal_active" || hasJournalKeywords) && text && !text.startsWith("/")) {
+        const activeScenarioId = sess?.scenarioId || practicalJournalScenarios[0].id;
+        const scenario = practicalJournalScenarios.find((s) => s.id === activeScenarioId) || practicalJournalScenarios[0];
+
+        const parsedArticles = parseFreeTextJournalEntry(text, scenario);
+        if (parsedArticles.length > 0) {
+          if (!sess) {
+            sess = { mode: "journal_active", scenarioId: scenario.id, draftArticles: [], lastUpdated: Date.now() };
+          }
+          sess.draftArticles = parsedArticles;
+          userSessionStates.set(from.id, sess);
+
+          const evalRes = evaluateJournalSubmission(scenario, parsedArticles);
+
+          if (evalRes.isCorrect) {
+            const recRes = recordJournalSuccess(from.id, scenario.id, {
+              firstName: from.first_name,
+              lastName: from.last_name,
+              username: from.username,
+            });
+
+            const scenarioMsg = formatJournalScenarioMessage(scenario.id, recRes.user, parsedArticles, evalRes);
+            await callTelegramApi(token, "sendMessage", {
+              chat_id: chatId,
+              text: scenarioMsg.text,
+              parse_mode: "HTML",
+              reply_markup: scenarioMsg.reply_markup,
+            });
+            return;
+          } else {
+            const scenarioMsg = formatJournalScenarioMessage(scenario.id, user, parsedArticles, evalRes);
+            await callTelegramApi(token, "sendMessage", {
+              chat_id: chatId,
+              text: scenarioMsg.text,
+              parse_mode: "HTML",
+              reply_markup: scenarioMsg.reply_markup,
+            });
+            return;
+          }
+        }
+      }
+
       // Handle /start (with optional deep-linking: /start quiz_5)
       if (text.startsWith("/start")) {
         const parts = text.split(" ");
@@ -1633,6 +2408,78 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         return;
       }
 
+      // Handle /sanad or "📑 کارگاه ثبت سند دستی ✍️"
+      if (
+        text.startsWith("/sanad") ||
+        text === "📑 کارگاه ثبت سند دستی ✍️" ||
+        text === "کارگاه ثبت سند دستی" ||
+        text === "ثبت سند دستی" ||
+        text === "ثبت سند" ||
+        text === "سند دستی" ||
+        text === "کارگاه سند" ||
+        text === "سند"
+      ) {
+        const parts = text.split(" ");
+        if (parts.length > 1) {
+          const scId = parts[1];
+          const matched = practicalJournalScenarios.find((s) => s.id === scId || String(s.scenarioNumber) === scId);
+          if (matched) {
+            userSessionStates.set(from.id, {
+              mode: "journal_active",
+              scenarioId: matched.id,
+              draftArticles: [],
+              lastUpdated: Date.now(),
+            });
+            const scMsg = formatJournalScenarioMessage(matched.id, user, []);
+            await callTelegramApi(token, "sendMessage", {
+              chat_id: chatId,
+              text: scMsg.text,
+              parse_mode: "HTML",
+              reply_markup: scMsg.reply_markup,
+            });
+            return;
+          }
+        }
+
+        const listMsg = formatJournalListMessage(user);
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: listMsg.text,
+          parse_mode: "HTML",
+          reply_markup: listMsg.reply_markup,
+        });
+        return;
+      }
+
+      // Handle /feedback or "📩 انتقاد، پیشنهاد و نظرات"
+      if (
+        text === "/feedback" ||
+        text === "/nazar" ||
+        text === "/pishnahad" ||
+        text === "📩 انتقاد، پیشنهاد و نظرات" ||
+        text === "انتقاد، پیشنهاد و نظرات" ||
+        text === "انتقادات و پیشنهادات" ||
+        text === "انتقاد و پیشنهاد" ||
+        text === "انتقادات" ||
+        text === "انتقاد" ||
+        text === "پیشنهاد" ||
+        text === "نظرات" ||
+        text === "نقد"
+      ) {
+        userSessionStates.set(from.id, {
+          mode: "awaiting_feedback",
+          lastUpdated: Date.now(),
+        });
+        const promptMsg = formatFeedbackPromptMessage();
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: promptMsg.text,
+          parse_mode: "HTML",
+          reply_markup: promptMsg.reply_markup,
+        });
+        return;
+      }
+
       // Handle /quiz or "📝 آزمون تستی امروز" or similar
       if (
         text === "/quiz" ||
@@ -1756,9 +2603,11 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         helpText += `🔹 /karname : مشاهده کارنامه، درصد قبولی و رتبه\n`;
         helpText += `🔹 /rank : جدول رتبه‌بندی نخبگان و برترین‌ها\n`;
         helpText += `🔹 /lesson : مشاهده آموزش مفهومی و سند دوبل روز\n`;
+        helpText += `🔹 /sanad : کارگاه تعاملی ثبت سند دستی حسابداری\n`;
+        helpText += `🔹 /feedback : ارسال انتقادات، پیشنهادات و نظرات به ادمین\n`;
         helpText += `🔹 /admin : پنل مدیریت و دریافت بکاپ\n`;
         helpText += `🔹 /backup : دریافت فایل پشتیبان سیستم\n\n`;
-        helpText += `✨ <i>تمامی آزمون‌ها با دکمه‌های شیشه‌ای تعاملی قابل انجام بوده و سوابق شما اختصاصی ذخیره می‌شود.</i>`;
+        helpText += `✨ <i>تمامی آزمون‌ها و کارگاه ثبت سند با دکمه‌های شیشه‌ای تعاملی قابل انجام بوده و سوابق شما اختصاصی ذخیره می‌شود.</i>`;
 
         const inlineKeyboard = [
           [
