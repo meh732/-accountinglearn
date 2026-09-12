@@ -238,18 +238,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     reader.readAsText(file);
   };
 
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState("");
+
   const handleSave = async () => {
+    setIsSaving(true);
+    setSaveSuccessMsg("");
     try {
-      await fetch("/api/bot-config", {
+      const res = await fetch("/api/bot-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),
       });
-    } catch (e) {
+      const data = await res.json();
+      if (data.ok && formData.telegramToken) {
+        // Automatically sync telegram menu in background
+        fetch("/api/bot/sync-menu", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: formData.telegramToken }),
+        }).catch(() => null);
+      }
+      setSaveSuccessMsg("✅ تنظیمات با موفقیت در سیستم و سرور ذخیره شد!");
+      onSaveConfig(formData);
+      setTimeout(() => {
+        setIsSaving(false);
+        onClose();
+      }, 700);
+    } catch (e: any) {
       console.warn("Failed to persist bot config to server:", e);
+      setIsSaving(false);
+      onSaveConfig(formData);
+      onClose();
     }
-    onSaveConfig(formData);
-    onClose();
   };
 
   return (
@@ -1045,17 +1066,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="px-6 py-4 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors"
+            disabled={isSaving}
+            className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 transition-colors disabled:opacity-50"
           >
             انصراف
           </button>
 
+          {saveSuccessMsg && (
+            <span className="text-xs font-semibold text-emerald-400 animate-in fade-in">
+              {saveSuccessMsg}
+            </span>
+          )}
+
           <button
             onClick={handleSave}
-            className="flex items-center gap-2 px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-lg shadow-emerald-900/30"
+            disabled={isSaving}
+            className="flex items-center gap-2 px-6 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-lg shadow-emerald-900/30 disabled:opacity-50"
           >
-            <Save className="w-4 h-4" />
-            <span>ذخیره تنظیمات</span>
+            {isSaving ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            <span>{isSaving ? "در حال ذخیره و اتصال..." : "ذخیره تنظیمات"}</span>
           </button>
         </div>
 

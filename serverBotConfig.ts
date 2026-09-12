@@ -14,6 +14,16 @@ export interface ServerBotConfig {
   simulationMode?: boolean;
 }
 
+const CANDIDATE_DIRS = [
+  process.cwd(),
+  path.join(process.cwd(), "data_persistence"),
+  "/opt/accountinglearn",
+  "/var/www/accountinglearn",
+  "/root/-accountinglearn",
+  "/root/accountinglearn",
+  path.resolve(process.cwd(), ".."),
+];
+
 const CONFIG_PATH = path.join(process.cwd(), "bot-config.json");
 const ENV_PATH = path.join(process.cwd(), ".env");
 const PERSISTENCE_DIR = path.join(process.cwd(), "data_persistence");
@@ -33,71 +43,85 @@ export function sanitizeValue(val: any): string {
   return String(val).replace(/^["']|["']$/g, "").trim();
 }
 
-// Helper to extract a value directly from .env file as a reliable fallback
+// Helper to extract a value directly from .env file as a reliable fallback across all paths
 function readEnvFileValue(key: string): string {
-  try {
-    if (fs.existsSync(ENV_PATH)) {
-      const raw = fs.readFileSync(ENV_PATH, "utf-8");
-      const match = raw.match(new RegExp(`^${key}\\s*=\\s*["']?(.*?)["']?\\s*$`, "m"));
-      if (match && match[1]) {
-        return sanitizeValue(match[1]);
-      }
-    }
-  } catch (_e) {}
+  const envPaths = [
+    ENV_PATH,
+    PERSISTENT_ENV_PATH,
+    "/opt/accountinglearn/.env",
+    "/var/www/accountinglearn/.env",
+    "/root/-accountinglearn/.env",
+  ];
 
-  // Fallback to persistent backup env
-  try {
-    if (fs.existsSync(PERSISTENT_ENV_PATH)) {
-      const raw = fs.readFileSync(PERSISTENT_ENV_PATH, "utf-8");
-      const match = raw.match(new RegExp(`^${key}\\s*=\\s*["']?(.*?)["']?\\s*$`, "m"));
-      if (match && match[1]) {
-        return sanitizeValue(match[1]);
+  for (const p of envPaths) {
+    try {
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, "utf-8");
+        const match = raw.match(new RegExp(`^${key}\\s*=\\s*["']?(.*?)["']?\\s*$`, "m"));
+        if (match && match[1]) {
+          const val = sanitizeValue(match[1]);
+          if (val) return val;
+        }
       }
-    }
-  } catch (_e) {}
+    } catch (_e) {}
+  }
 
   return "";
 }
 
-// Helper to write/update key in .env file
+// Helper to write/update key in .env file across all available dirs
 function writeEnvFileValue(key: string, value: string) {
   const clean = sanitizeValue(value);
-  try {
-    let content = "";
-    if (fs.existsSync(ENV_PATH)) {
-      content = fs.readFileSync(ENV_PATH, "utf-8");
-    }
-    const regex = new RegExp(`^${key}=.*$`, "m");
-    if (regex.test(content)) {
-      content = content.replace(regex, `${key}="${clean}"`);
-    } else {
-      content = content ? `${content.trim()}\n${key}="${clean}"\n` : `${key}="${clean}"\n`;
-    }
-    fs.writeFileSync(ENV_PATH, content, "utf-8");
+  const targetEnvs = [
+    ENV_PATH,
+    PERSISTENT_ENV_PATH,
+    "/opt/accountinglearn/.env",
+    "/var/www/accountinglearn/.env",
+    "/root/-accountinglearn/.env",
+  ];
 
-    // Also mirror to persistent directory
+  for (const p of targetEnvs) {
     try {
-      fs.writeFileSync(PERSISTENT_ENV_PATH, content, "utf-8");
+      const parentDir = path.dirname(p);
+      if (fs.existsSync(parentDir)) {
+        let content = "";
+        if (fs.existsSync(p)) {
+          content = fs.readFileSync(p, "utf-8");
+        }
+        const regex = new RegExp(`^${key}=.*$`, "m");
+        if (regex.test(content)) {
+          content = content.replace(regex, `${key}="${clean}"`);
+        } else {
+          content = content ? `${content.trim()}\n${key}="${clean}"\n` : `${key}="${clean}"\n`;
+        }
+        fs.writeFileSync(p, content, "utf-8");
+      }
     } catch (_e) {}
-  } catch (_e) {}
+  }
 }
 
 export function loadServerBotConfig(): ServerBotConfig {
   let parsed: Partial<ServerBotConfig> = {};
 
-  try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const data = fs.readFileSync(CONFIG_PATH, "utf-8");
-      parsed = JSON.parse(data);
-    } else if (fs.existsSync(PERSISTENT_CONFIG_PATH)) {
-      // Auto-recover from persistence directory if config was accidentally wiped
-      const data = fs.readFileSync(PERSISTENT_CONFIG_PATH, "utf-8");
-      parsed = JSON.parse(data);
-      fs.writeFileSync(CONFIG_PATH, data, "utf-8");
-      console.log("[Persistence] Successfully auto-recovered bot-config.json from persistence directory!");
-    }
-  } catch (e) {
-    console.error("Error reading bot-config.json:", e);
+  const configCandidates = [
+    CONFIG_PATH,
+    PERSISTENT_CONFIG_PATH,
+    "/opt/accountinglearn/bot-config.json",
+    "/var/www/accountinglearn/bot-config.json",
+    "/root/-accountinglearn/bot-config.json",
+  ];
+
+  for (const cPath of configCandidates) {
+    try {
+      if (fs.existsSync(cPath)) {
+        const data = fs.readFileSync(cPath, "utf-8");
+        const obj = JSON.parse(data);
+        if (obj && (obj.telegramToken || obj.telegramChannel || obj.baleToken || obj.baleChannel)) {
+          parsed = { ...parsed, ...obj };
+          break;
+        }
+      }
+    } catch (_e) {}
   }
 
   const tgToken = sanitizeValue(parsed.telegramToken || process.env.TELEGRAM_BOT_TOKEN || readEnvFileValue("TELEGRAM_BOT_TOKEN"));
@@ -134,41 +158,49 @@ export function saveServerBotConfig(config: Partial<ServerBotConfig>): ServerBot
   updated.baleChannel = sanitizeValue(updated.baleChannel);
   if (updated.baleAdminChatId) updated.baleAdminChatId = sanitizeValue(updated.baleAdminChatId);
 
-  try {
-    const jsonStr = JSON.stringify(updated, null, 2);
-    fs.writeFileSync(CONFIG_PATH, jsonStr, "utf-8");
+  const jsonStr = JSON.stringify(updated, null, 2);
 
-    // Mirror to persistent directory so updates can never wipe it
+  const writeTargetPaths = [
+    CONFIG_PATH,
+    PERSISTENT_CONFIG_PATH,
+    "/opt/accountinglearn/bot-config.json",
+    "/var/www/accountinglearn/bot-config.json",
+    "/root/-accountinglearn/bot-config.json",
+  ];
+
+  for (const tPath of writeTargetPaths) {
     try {
-      fs.writeFileSync(PERSISTENT_CONFIG_PATH, jsonStr, "utf-8");
+      const parentDir = path.dirname(tPath);
+      if (fs.existsSync(parentDir)) {
+        fs.writeFileSync(tPath, jsonStr, "utf-8");
+      }
     } catch (_e) {}
-
-    if (updated.telegramToken) {
-      process.env.TELEGRAM_BOT_TOKEN = updated.telegramToken;
-      writeEnvFileValue("TELEGRAM_BOT_TOKEN", updated.telegramToken);
-    }
-    if (updated.telegramChannel) {
-      process.env.TELEGRAM_CHANNEL_ID = updated.telegramChannel;
-      writeEnvFileValue("TELEGRAM_CHANNEL_ID", updated.telegramChannel);
-    }
-    if (updated.telegramAdminChatId) {
-      process.env.TELEGRAM_ADMIN_CHAT_ID = updated.telegramAdminChatId;
-      writeEnvFileValue("TELEGRAM_ADMIN_CHAT_ID", updated.telegramAdminChatId);
-    }
-    if (updated.baleToken) {
-      process.env.BALE_BOT_TOKEN = updated.baleToken;
-      writeEnvFileValue("BALE_BOT_TOKEN", updated.baleToken);
-    }
-    if (updated.baleChannel) {
-      process.env.BALE_CHANNEL_ID = updated.baleChannel;
-      writeEnvFileValue("BALE_CHANNEL_ID", updated.baleChannel);
-    }
-    if (updated.baleAdminChatId) {
-      process.env.BALE_ADMIN_CHAT_ID = updated.baleAdminChatId;
-      writeEnvFileValue("BALE_ADMIN_CHAT_ID", updated.baleAdminChatId);
-    }
-  } catch (e) {
-    console.error("Error writing bot-config.json:", e);
   }
+
+  if (updated.telegramToken) {
+    process.env.TELEGRAM_BOT_TOKEN = updated.telegramToken;
+    writeEnvFileValue("TELEGRAM_BOT_TOKEN", updated.telegramToken);
+  }
+  if (updated.telegramChannel) {
+    process.env.TELEGRAM_CHANNEL_ID = updated.telegramChannel;
+    writeEnvFileValue("TELEGRAM_CHANNEL_ID", updated.telegramChannel);
+  }
+  if (updated.telegramAdminChatId) {
+    process.env.TELEGRAM_ADMIN_CHAT_ID = updated.telegramAdminChatId;
+    writeEnvFileValue("TELEGRAM_ADMIN_CHAT_ID", updated.telegramAdminChatId);
+  }
+  if (updated.baleToken) {
+    process.env.BALE_BOT_TOKEN = updated.baleToken;
+    writeEnvFileValue("BALE_BOT_TOKEN", updated.baleToken);
+  }
+  if (updated.baleChannel) {
+    process.env.BALE_CHANNEL_ID = updated.baleChannel;
+    writeEnvFileValue("BALE_CHANNEL_ID", updated.baleChannel);
+  }
+  if (updated.baleAdminChatId) {
+    process.env.BALE_ADMIN_CHAT_ID = updated.baleAdminChatId;
+    writeEnvFileValue("BALE_ADMIN_CHAT_ID", updated.baleAdminChatId);
+  }
+
   return updated;
 }

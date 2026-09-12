@@ -24,14 +24,54 @@ BIN_LINK="/usr/local/bin/accountinglearn"
 BIN_LINK_SHORT="/usr/local/bin/acc-bot"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
-# Determine application directory
-if [ -f "$(pwd)/package.json" ]; then
-    APP_DIR="$(pwd)"
-elif [ -d "${INSTALL_DIR}" ] && [ -f "${INSTALL_DIR}/package.json" ]; then
-    APP_DIR="${INSTALL_DIR}"
-else
-    APP_DIR="${INSTALL_DIR}"
-fi
+# Determine application directory robustly
+find_app_dir() {
+    # 1. Check if pwd has package.json
+    if [ -f "$(pwd)/package.json" ]; then
+        echo "$(pwd)"
+        return
+    fi
+
+    # 2. Check script directory
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+    if [ -f "${script_dir}/package.json" ]; then
+        echo "${script_dir}"
+        return
+    fi
+
+    # 3. Check realpath of script
+    local real_script
+    real_script="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+    local real_dir
+    real_dir="$(cd "$(dirname "${real_script}")" 2>/dev/null && pwd)"
+    if [ -f "${real_dir}/package.json" ]; then
+        echo "${real_dir}"
+        return
+    fi
+
+    # 4. Check systemd service WorkingDirectory
+    if [ -f "${SERVICE_FILE}" ]; then
+        local sys_dir
+        sys_dir=$(grep -E "^WorkingDirectory=" "${SERVICE_FILE}" | head -n1 | cut -d'=' -f2 | tr -d ' ' || true)
+        if [ -n "${sys_dir}" ] && [ -f "${sys_dir}/package.json" ]; then
+            echo "${sys_dir}"
+            return
+        fi
+    fi
+
+    # 5. Check common paths
+    for cand in "/var/www/accountinglearn" "/opt/accountinglearn" "/root/-accountinglearn" "/root/accountinglearn"; do
+        if [ -f "${cand}/package.json" ]; then
+            echo "${cand}"
+            return
+        fi
+    done
+
+    echo "${INSTALL_DIR}"
+}
+
+APP_DIR="$(find_app_dir)"
 
 BACKUP_DIR="${APP_DIR}/backups"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -59,21 +99,51 @@ prompt_user() {
 set_env_val() {
     local key="$1"
     local val="$2"
-    local env_file="${APP_DIR}/.env"
-    [ -f "${env_file}" ] || touch "${env_file}"
-    if grep -q "^${key}=" "${env_file}"; then
-        sed -i "s|^${key}=.*|${key}=\"${val}\"|" "${env_file}"
-    else
-        echo "${key}=\"${val}\"" >> "${env_file}"
-    fi
+    for dir in "${APP_DIR}" "/opt/accountinglearn" "/var/www/accountinglearn" "/root/-accountinglearn" "/root/accountinglearn" "$(pwd)"; do
+        if [ -d "${dir}" ]; then
+            local env_file="${dir}/.env"
+            [ -f "${env_file}" ] || touch "${env_file}"
+            if grep -q "^${key}=" "${env_file}"; then
+                sed -i "s|^${key}=.*|${key}=\"${val}\"|" "${env_file}"
+            else
+                echo "${key}=\"${val}\"" >> "${env_file}"
+            fi
+        fi
+    done
 }
 
 get_env_val() {
     local key="$1"
-    local env_file="${APP_DIR}/.env"
-    if [ -f "${env_file}" ]; then
-        grep -E "^${key}=" "${env_file}" | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" || true
-    fi
+    for dir in "${APP_DIR}" "/opt/accountinglearn" "/var/www/accountinglearn" "/root/-accountinglearn" "/root/accountinglearn" "$(pwd)"; do
+        local env_file="${dir}/.env"
+        if [ -f "${env_file}" ]; then
+            local val
+            val=$(grep -E "^${key}=" "${env_file}" | head -n1 | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
+            if [ -n "$val" ]; then
+                echo "$val"
+                return
+            fi
+        fi
+        local cfg_file="${dir}/bot-config.json"
+        if [ -f "${cfg_file}" ]; then
+            local json_prop=""
+            case "$key" in
+                TELEGRAM_BOT_TOKEN) json_prop="telegramToken" ;;
+                TELEGRAM_CHANNEL_ID) json_prop="telegramChannel" ;;
+                TELEGRAM_ADMIN_CHAT_ID) json_prop="telegramAdminChatId" ;;
+                BALE_BOT_TOKEN) json_prop="baleToken" ;;
+                BALE_CHANNEL_ID) json_prop="baleChannel" ;;
+            esac
+            if [ -n "$json_prop" ]; then
+                local jval
+                jval=$(grep -o "\"${json_prop}\":\"[^\"]*" "${cfg_file}" | head -n1 | cut -d'"' -f4 || true)
+                if [ -n "$jval" ]; then
+                    echo "$jval"
+                    return
+                fi
+            fi
+        fi
+    done
 }
 
 print_banner() {
@@ -936,28 +1006,16 @@ diagnose_telegram_and_channel() {
     echo "=================================================================="
     echo ""
 
-    local tg_token=""
-    local tg_channel=""
-    local tg_admin=""
-    local bale_token=""
-    local bale_channel=""
-
-    # Read from .env first
-    if [ -f "${APP_DIR}/.env" ]; then
-        tg_token=$(grep -E "^TELEGRAM_BOT_TOKEN=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
-        tg_channel=$(grep -E "^TELEGRAM_CHANNEL_ID=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
-        tg_admin=$(grep -E "^TELEGRAM_ADMIN_CHAT_ID=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
-        bale_token=$(grep -E "^BALE_BOT_TOKEN=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
-        bale_channel=$(grep -E "^BALE_CHANNEL_ID=" "${APP_DIR}/.env" | cut -d'=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ' || true)
-    fi
-
-    # Fallback from bot-config.json
-    if [ -z "$tg_token" ] && [ -f "${APP_DIR}/bot-config.json" ]; then
-        tg_token=$(grep -o '"telegramToken":"[^"]*' "${APP_DIR}/bot-config.json" | head -n1 | cut -d'"' -f4 || true)
-    fi
-    if [ -z "$tg_channel" ] && [ -f "${APP_DIR}/bot-config.json" ]; then
-        tg_channel=$(grep -o '"telegramChannel":"[^"]*' "${APP_DIR}/bot-config.json" | head -n1 | cut -d'"' -f4 || true)
-    fi
+    local tg_token
+    tg_token=$(get_env_val "TELEGRAM_BOT_TOKEN")
+    local tg_channel
+    tg_channel=$(get_env_val "TELEGRAM_CHANNEL_ID")
+    local tg_admin
+    tg_admin=$(get_env_val "TELEGRAM_ADMIN_CHAT_ID")
+    local bale_token
+    bale_token=$(get_env_val "BALE_BOT_TOKEN")
+    local bale_channel
+    bale_channel=$(get_env_val "BALE_CHANNEL_ID")
 
     local tg_masked="Not Set"
     if [ -n "$tg_token" ]; then
