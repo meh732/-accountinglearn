@@ -478,12 +478,12 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
 
   const userAnswer = user?.answers[String(dayNumber)];
 
-  let text = `🏆 <b>آزمون تستی روز شماره ${dayNumber}</b>\n`;
+  let text = `📝 <b>آزمون تستی ۴ گزینه‌ای (روز شماره ${dayNumber})</b>\n`;
   text += `📚 <b>سرفصل:</b> ${dayItem.title}\n`;
   text += `🏷 <b>دسته:</b> ${category}\n\n`;
   text += `❓ <b>صورت سوال:</b>\n${question}\n\n`;
 
-  const colorMarkers = ["🔵", "🟢", "🟡", "🟣"];
+  const numberMarkers = ["۱.", "۲.", "۳.", "۴."];
   options.forEach((opt, idx) => {
     let mark = "";
     if (userAnswer) {
@@ -493,7 +493,7 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
         mark = " ❌ <b>(انتخاب شما)</b>";
       }
     }
-    text += `${colorMarkers[idx] || "🔹"} ${opt}${mark}\n`;
+    text += `<b>${numberMarkers[idx] || `${idx + 1}.`}</b> ${opt}${mark}\n`;
   });
 
   if (userAnswer) {
@@ -511,50 +511,48 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
     }
     text += `\n⭐️ <b>امتیاز کل شما:</b> ${user?.totalScore || 0} | 📊 <b>آزمون‌های حل‌شده:</b> ${user?.correctCount || 0} از ${user?.totalAnswered || 0}`;
   } else {
-    text += `\n👇 <b>لطفاً یکی از گزینه‌های شیشه‌ای زیر را لمس کنید:</b>`;
+    text += `\n👇 <b>لطفاً یکی از گزینه‌های زیر را انتخاب کنید:</b>`;
   }
 
-  // Inline Keyboard Buttons
+  // Inline Keyboard Buttons - Clean, uncolored standard buttons
   const inlineKeyboard: any[][] = [];
 
   if (!userAnswer) {
-    // 4 option buttons ONLY with clean layout
     inlineKeyboard.push([
-      { text: `1️⃣ گزینه ۱`, callback_data: `q_ans:${dayNumber}:0`, style: "primary" },
-      { text: `2️⃣ گزینه ۲`, callback_data: `q_ans:${dayNumber}:1`, style: "primary" },
+      { text: `گزینه ۱`, callback_data: `q_ans:${dayNumber}:0` },
+      { text: `گزینه ۲`, callback_data: `q_ans:${dayNumber}:1` },
     ]);
     inlineKeyboard.push([
-      { text: `3️⃣ گزینه ۳`, callback_data: `q_ans:${dayNumber}:2`, style: "primary" },
-      { text: `4️⃣ گزینه ۴`, callback_data: `q_ans:${dayNumber}:3`, style: "primary" },
+      { text: `گزینه ۳`, callback_data: `q_ans:${dayNumber}:2` },
+      { text: `گزینه ۴`, callback_data: `q_ans:${dayNumber}:3` },
     ]);
   } else {
-    // Navigation & Review Buttons after answering
     const navRow = [];
     if (dayNumber > 1) {
-      navRow.push({ text: `⬅️ آزمون روز قبل (${dayNumber - 1})`, callback_data: `q_show:${dayNumber - 1}`, style: "primary" });
+      navRow.push({ text: `⬅️ آزمون روز قبل (${dayNumber - 1})`, callback_data: `q_show:${dayNumber - 1}` });
     }
     if (dayNumber < 90) {
-      navRow.push({ text: `آزمون روز بعد (${dayNumber + 1}) ➡️`, callback_data: `q_show:${dayNumber + 1}`, style: "primary" });
+      navRow.push({ text: `آزمون روز بعد (${dayNumber + 1}) ➡️`, callback_data: `q_show:${dayNumber + 1}` });
     }
     if (navRow.length > 0) inlineKeyboard.push(navRow);
 
     inlineKeyboard.push([
-      { text: `🔄 حل مجدد همین آزمون 🔁`, callback_data: `q_retake:${dayNumber}`, style: "danger" },
-      { text: `📖 مطالعه درس روز ${dayNumber} ☀️`, callback_data: `q_lesson:${dayNumber}`, style: "primary" },
+      { text: `🔄 حل مجدد همین آزمون`, callback_data: `q_retake:${dayNumber}` },
+      { text: `📖 مطالعه درس روز ${dayNumber}`, callback_data: `q_lesson:${dayNumber}` },
     ]);
   }
 
   // Quick navigation row
   inlineKeyboard.push([
-    { text: `📚 بانک ۹۰ آزمون تستی ⚡️`, callback_data: `q_page:1`, style: "primary" },
-    { text: `📑 کارگاه ۹۰ سند حسابداری ✍️`, callback_data: `sanad_page:1`, style: "success" },
+    { text: `✍️ آزمون تشریحی (ثبت سند)`, callback_data: `sanad_page:1` },
+    { text: `📚 بانک ۹۰ آزمون تستی`, callback_data: `q_page:1` },
   ]);
   inlineKeyboard.push([
-    { text: `🏆 کارنامه و رتبه من ⭐️`, callback_data: `my_stats`, style: "success" },
-    { text: `🥇 جدول نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
+    { text: `🏆 کارنامه من`, callback_data: `my_stats` },
+    { text: `🥇 جدول رتبه‌بندی نخبگان`, callback_data: `leaderboard` },
   ]);
   inlineKeyboard.push([
-    { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
+    { text: `🏠 منوی اصلی ربات`, callback_data: `main_menu` },
   ]);
 
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
@@ -587,29 +585,29 @@ export function formatDailySanadMessage(dayNumber: number, user?: TelegramBotUse
 
   // Direct action buttons
   inlineKeyboard.push([
-    { text: `📝 شرکت در آزمون تستی روز ${dayNumber} 🎯`, callback_data: `q_show:${dayNumber}`, style: "success" },
+    { text: `📝 شرکت در آزمون تستی روز ${dayNumber} 🎯`, callback_data: `q_show:${dayNumber}` },
   ]);
   inlineKeyboard.push([
-    { text: `✍️ ورود به کارگاه ۹۰ سند حسابداری 📑`, callback_data: `sanad_page:1`, style: "success" },
-    { text: `📖 مطالعه کامل درس روز ${dayNumber} ☀️`, callback_data: `q_lesson:${dayNumber}`, style: "primary" },
+    { text: `✍️ ورود به کارگاه ۹۰ سند حسابداری 📑`, callback_data: `sanad_page:1` },
+    { text: `📖 مطالعه کامل درس روز ${dayNumber}`, callback_data: `q_lesson:${dayNumber}` },
   ]);
 
   // Sanad navigation row
   const navRow: any[] = [];
   if (dayNumber > 1) {
-    navRow.push({ text: `⬅️ سند روز ${dayNumber - 1}`, callback_data: `q_sanad:${dayNumber - 1}`, style: "primary" });
+    navRow.push({ text: `⬅️ سند روز ${dayNumber - 1}`, callback_data: `q_sanad:${dayNumber - 1}` });
   }
   if (dayNumber < 90) {
-    navRow.push({ text: `سند روز ${dayNumber + 1} ➡️`, callback_data: `q_sanad:${dayNumber + 1}`, style: "primary" });
+    navRow.push({ text: `سند روز ${dayNumber + 1} ➡️`, callback_data: `q_sanad:${dayNumber + 1}` });
   }
   if (navRow.length > 0) inlineKeyboard.push(navRow);
 
   inlineKeyboard.push([
-    { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
-    { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
+    { text: `📚 بانک ۹۰ آزمون تستی`, callback_data: `q_page:1` },
+    { text: `🏆 کارنامه من`, callback_data: `my_stats` },
   ]);
   inlineKeyboard.push([
-    { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
+    { text: `🏠 منوی اصلی ربات`, callback_data: `main_menu` },
   ]);
 
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
@@ -714,21 +712,17 @@ export function formatQuizPageMessage(pageNum: number, user?: TelegramBotUser) {
 
   for (let d = startDay; d <= endDay; d++) {
     const ans = user?.answers[String(d)];
-    let statusIcon = "⚪️";
-    let btnStyle: "primary" | "success" | "danger" = "primary";
+    let statusIcon = "▫️";
     if (ans) {
       if (ans.isCorrect) {
         statusIcon = "✅";
-        btnStyle = "success";
       } else {
         statusIcon = "❌";
-        btnStyle = "danger";
       }
     }
     currentRow.push({
       text: `${statusIcon} روز ${d}`,
       callback_data: `q_show:${d}`,
-      style: btnStyle,
     });
 
     if (currentRow.length === 2) {
@@ -743,22 +737,22 @@ export function formatQuizPageMessage(pageNum: number, user?: TelegramBotUser) {
   // Pagination navigation row
   const paginationRow: any[] = [];
   if (currentPage > 1) {
-    paginationRow.push({ text: `⬅️ صفحه قبل`, callback_data: `q_page:${currentPage - 1}`, style: "primary" });
+    paginationRow.push({ text: `⬅️ صفحه قبل`, callback_data: `q_page:${currentPage - 1}` });
   }
   paginationRow.push({ text: `📄 ص ${currentPage}/${totalPages}`, callback_data: `noop` });
   if (currentPage < totalPages) {
-    paginationRow.push({ text: `صفحه بعد ➡️`, callback_data: `q_page:${currentPage + 1}`, style: "primary" });
+    paginationRow.push({ text: `صفحه بعد ➡️`, callback_data: `q_page:${currentPage + 1}` });
   }
   inlineKeyboard.push(paginationRow);
 
-  // Bottom action buttons with color styles
+  // Bottom action buttons
   inlineKeyboard.push([
-    { text: `📝 آزمون امروز 🎯`, callback_data: `q_today`, style: "success" },
-    { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
+    { text: `📝 آزمون امروز 🎯`, callback_data: `q_today` },
+    { text: `🏆 کارنامه من`, callback_data: `my_stats` },
   ]);
   inlineKeyboard.push([
-    { text: `🥇 جدول نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
-    { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
+    { text: `🥇 جدول رتبه‌بندی نخبگان`, callback_data: `leaderboard` },
+    { text: `🏠 منوی اصلی ربات`, callback_data: `main_menu` },
   ]);
 
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
@@ -788,12 +782,12 @@ export function formatUserStatsMessage(user: TelegramBotUser) {
 
   const inlineKeyboard = [
     [
-      { text: `📝 شروع آزمون امروز 🎯`, callback_data: `q_today`, style: "success" },
-      { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
+      { text: `📝 شروع آزمون امروز 🎯`, callback_data: `q_today` },
+      { text: `📚 بانک ۹۰ آزمون تستی`, callback_data: `q_page:1` },
     ],
     [
-      { text: `🥇 جدول رتبه‌بندی نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
-      { text: `🏠 بازگشت به منوی اصلی 📌`, callback_data: `main_menu`, style: "primary" },
+      { text: `🥇 جدول رتبه‌بندی نخبگان`, callback_data: `leaderboard` },
+      { text: `🏠 بازگشت به منوی اصلی`, callback_data: `main_menu` },
     ],
   ];
 
@@ -826,12 +820,12 @@ export function formatLeaderboardMessage(currentUserId: number) {
 
   const inlineKeyboard = [
     [
-      { text: `📝 شروع آزمون امروز 🎯`, callback_data: `q_today`, style: "success" },
-      { text: `🏆 کارنامه اختصاصی من ⭐️`, callback_data: `my_stats`, style: "success" },
+      { text: `📝 شروع آزمون امروز 🎯`, callback_data: `q_today` },
+      { text: `🏆 کارنامه اختصاصی من`, callback_data: `my_stats` },
     ],
     [
-      { text: `📚 بانک ۹۰ آزمون دوره ⚡️`, callback_data: `q_page:1`, style: "primary" },
-      { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
+      { text: `📚 بانک ۹۰ آزمون دوره`, callback_data: `q_page:1` },
+      { text: `🏠 منوی اصلی ربات`, callback_data: `main_menu` },
     ],
   ];
 
@@ -841,45 +835,45 @@ export function formatLeaderboardMessage(currentUserId: number) {
 // Format Main Welcome Menu
 export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: string) {
   let text = `👋 سلام <b>${user.firstName}</b> عزیز،\n`;
-  text += `به <b>سامانه جامع آموزش و آزمون‌های حسابداری ایران</b> خوش آمدید! 🇮🇷✨\n\n`;
+  text += `به <b>سامانه جامع آموزش و آزمون‌های حسابداری ایران</b> خوش آمدید!\n\n`;
   text += `📌 <b>بخش‌های کاملاً مجزا و تفکیک‌شده سامانه:</b>\n`;
-  text += `۱️⃣ <b>✍️ آزمون‌های تشریحی (ثبت سند دوبل):</b> بانک ۹۰ سناریوی واقعی بازار کار با صدور دستی سند، تراز و ارزیابی هوشمند\n`;
+  text += `۱️⃣ <b>✍️ آزمون‌های تشریحی (ثبت سند دوبل):</b> ۹۰ سناریوی واقعی بازار کار با صدور دستی سند، تراز و ارزیابی هوشمند\n`;
   text += `۲️⃣ <b>📝 آزمون‌های تستی ۴ گزینه‌ای:</b> ۹۰ آزمون تستی استانداردها و قوانین مالیاتی با کلید تصادفی\n`;
   text += `۳️⃣ <b>📖 دوره آموزش و سرفصل‌های ۹۰ روزه:</b> آموزش گام‌به‌گام و نکات کلیدی روزانه\n`;
   text += `۴️⃣ <b>🏆 کارنامه و رتبه‌بندی نخبگان:</b> محاسبه امتیازات و سنجش تسلط شما\n\n`;
   text += `⭐️ <b>امتیاز کل شما:</b> ${user.totalScore} امتیاز | 🎯 <b>تست‌های حل‌شده:</b> ${user.correctCount} از ${user.totalAnswered}\n\n`;
   if (channelSignature) text += `${channelSignature}\n\n`;
-  text += `👇 <b>لطفاً بخش مورد نظر خود را با لمس دکمه‌های زیر انتخاب فرمایید:</b>`;
+  text += `👇 <b>لطفاً بخش مورد نظر خود را با انتخاب دکمه‌های زیر باز فرمایید:</b>`;
 
   const inlineKeyboard: any[][] = [];
 
   if (isBotAdmin(user.userId)) {
     inlineKeyboard.push([
-      { text: `👑 🟢 پنل مدیریت و دریافت بکاپ 📦 🟢`, callback_data: `admin_panel`, style: "success" },
+      { text: `👑 پنل مدیریت ادمین و دریافت بکاپ 📦`, callback_data: `admin_panel` },
     ]);
   }
 
   inlineKeyboard.push(
     [
-      { text: `✍️ 🟢 آزمون تشریحی (ثبت سند حسابداری) 📑 🟢`, callback_data: `sanad_page:1`, style: "success" },
+      { text: `✍️ آزمون تشریحی (ثبت سند حسابداری) 📑`, callback_data: `sanad_page:1` },
     ],
     [
-      { text: `📝 🟢 آزمون تستی ۴ گزینه‌ای 🎯 🟢`, callback_data: `q_today`, style: "success" },
+      { text: `📝 آزمون تستی ۴ گزینه‌ای 🎯`, callback_data: `q_today` },
     ],
     [
-      { text: `📂 بانک ۹۰ آزمون تشریحی سند`, callback_data: `sanad_page:1`, style: "primary" },
-      { text: `📚 بانک ۹۰ آزمون تستی`, callback_data: `q_page:1`, style: "primary" },
+      { text: `📂 بانک ۹۰ آزمون تشریحی سند`, callback_data: `sanad_page:1` },
+      { text: `📚 بانک ۹۰ آزمون تستی`, callback_data: `q_page:1` },
     ],
     [
-      { text: `📖 دوره آموزش ۹۰ روزه ☀️`, callback_data: `q_lesson_today`, style: "primary" },
-      { text: `🏆 کارنامه و سوابق من ⭐️`, callback_data: `my_stats`, style: "success" },
+      { text: `📖 دوره آموزش ۹۰ روزه`, callback_data: `q_lesson_today` },
+      { text: `🏆 کارنامه و سوابق من`, callback_data: `my_stats` },
     ],
     [
-      { text: `🥇 جدول رتبه‌بندی نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
-      { text: `📩 انتقاد، پیشنهاد و نظرات 💬`, callback_data: `feedback_start`, style: "primary" },
+      { text: `🥇 جدول رتبه‌بندی نخبگان`, callback_data: `leaderboard` },
+      { text: `📩 انتقاد، پیشنهاد و نظرات`, callback_data: `feedback_start` },
     ],
     [
-      { text: `💡 راهنما و دستورات ربات ❓`, callback_data: `help_cmd`, style: "primary" },
+      { text: `💡 راهنما و دستورات ربات ❓`, callback_data: `help_cmd` },
     ]
   );
 
@@ -1146,7 +1140,7 @@ export function formatJournalScenarioMessage(
     text += `✍️ <b>روش‌های ثبت سند:</b>\n`;
     text += `۱️⃣ <b>تایپ در چت:</b> می‌توانید سند را به صورت متن در همین چت ارسال کنید. مثال:\n`;
     text += `<code>بدهکار: اثاثه ۵۰ میلیون\nبستانکار: بانک ۲۰ میلیون\nبستانکار: چک ۳۰ میلیون</code>\n\n`;
-    text += `۲️⃣ <b>دکمه‌های شیشه‌ای:</b> یا با لمس دکمه‌های رنگی زیر آرتیکل‌های مورد نظر را اضافه و سپس دکمه بررسی را لمس کنید.\n`;
+    text += `۲️⃣ <b>دکمه‌های شیشه‌ای:</b> یا با انتخاب دکمه‌های زیر آرتیکل‌های مورد نظر را اضافه و سپس دکمه بررسی را بزنید.\n`;
   }
 
   // Build inline keyboard
@@ -1160,7 +1154,6 @@ export function formatJournalScenarioMessage(
     optionButtons.push({
       text: `➕ ${sideFa}: ${opt.name.slice(0, 12)} (${amountStr})`,
       callback_data: `sanad_add:${scenario.id}:${opt.suggestedSide}:${idx}`,
-      style: opt.suggestedSide === "debit" ? "primary" : "success",
     });
   });
 
@@ -1172,33 +1165,33 @@ export function formatJournalScenarioMessage(
   // Action buttons
   if (draftArticles.length > 0) {
     inlineKeyboard.push([
-      { text: `✅ بررسی و ثبت نهایی سند ⚖️`, callback_data: `sanad_eval:${scenario.id}`, style: "success" },
-      { text: `🔄 پاک‌کردن و ریست سند 🔁`, callback_data: `sanad_reset:${scenario.id}`, style: "danger" },
+      { text: `✅ بررسی و ثبت نهایی سند ⚖️`, callback_data: `sanad_eval:${scenario.id}` },
+      { text: `🔄 پاک‌کردن و ریست سند`, callback_data: `sanad_reset:${scenario.id}` },
     ]);
   }
 
   inlineKeyboard.push([
-    { text: `👁 مشاهده پاسخ تشریحی و استاندارد 💡`, callback_data: `sanad_solution:${scenario.id}`, style: "primary" },
+    { text: `👁 مشاهده پاسخ تشریحی و استاندارد 💡`, callback_data: `sanad_solution:${scenario.id}` },
   ]);
 
   // Navigation rows for 90 scenarios
   const navRow: any[] = [];
   const currentNum = scenario.scenarioNumber;
   if (currentNum > 1) {
-    navRow.push({ text: `⬅️ سناریوی ${currentNum - 1}`, callback_data: `sanad_view:sc-${currentNum - 1}`, style: "primary" });
+    navRow.push({ text: `⬅️ سناریوی ${currentNum - 1}`, callback_data: `sanad_view:sc-${currentNum - 1}` });
   }
   if (currentNum < 90) {
-    navRow.push({ text: `سناریوی ${currentNum + 1} ➡️`, callback_data: `sanad_view:sc-${currentNum + 1}`, style: "primary" });
+    navRow.push({ text: `سناریوی ${currentNum + 1} ➡️`, callback_data: `sanad_view:sc-${currentNum + 1}` });
   }
   if (navRow.length > 0) inlineKeyboard.push(navRow);
 
   const pageForThis = Math.ceil(currentNum / 10);
   inlineKeyboard.push([
-    { text: `📚 بانک ۹۰ سناریوی کارگاه ⚡️`, callback_data: `sanad_page:${pageForThis}`, style: "primary" },
-    { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
+    { text: `📚 بانک ۹۰ سناریوی کارگاه`, callback_data: `sanad_page:${pageForThis}` },
+    { text: `🏆 کارنامه من`, callback_data: `my_stats` },
   ]);
   inlineKeyboard.push([
-    { text: `🏠 بازگشت به منوی اصلی 📌`, callback_data: `main_menu`, style: "primary" },
+    { text: `🏠 بازگشت به منوی اصلی`, callback_data: `main_menu` },
   ]);
 
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
@@ -1230,13 +1223,12 @@ export function formatJournalListMessage(pageNum: number = 1, user?: TelegramBot
   for (let n = startNum; n <= endNum; n++) {
     const sc = getJournalScenario(n);
     const isSolved = user?.journalAnswers?.[sc.id]?.isCorrect || user?.journalAnswers?.[`sc-${n}`]?.isCorrect;
-    const statusIcon = isSolved ? "✅" : "🔵";
+    const statusIcon = isSolved ? "✅" : "▫️";
     const statusText = isSolved ? "(حل‌شده)" : "";
     inlineKeyboard.push([
       {
         text: `${statusIcon} سناریو ${n}: ${sc.title.slice(0, 32)} ${statusText}`,
         callback_data: `sanad_view:${sc.id}`,
-        style: isSolved ? "success" : "primary",
       },
     ]);
   }
@@ -1244,25 +1236,25 @@ export function formatJournalListMessage(pageNum: number = 1, user?: TelegramBot
   // Pagination navigation row
   const paginationRow: any[] = [];
   if (currentPage > 1) {
-    paginationRow.push({ text: `⬅️ صفحه قبل`, callback_data: `sanad_page:${currentPage - 1}`, style: "primary" });
+    paginationRow.push({ text: `⬅️ صفحه قبل`, callback_data: `sanad_page:${currentPage - 1}` });
   }
   paginationRow.push({ text: `📄 ص ${currentPage}/${totalPages}`, callback_data: `sanad_page:${currentPage}` });
   if (currentPage < totalPages) {
-    paginationRow.push({ text: `صفحه بعد ➡️`, callback_data: `sanad_page:${currentPage + 1}`, style: "primary" });
+    paginationRow.push({ text: `صفحه بعد ➡️`, callback_data: `sanad_page:${currentPage + 1}` });
   }
   inlineKeyboard.push(paginationRow);
 
   // Quick categories
   inlineKeyboard.push([
-    { text: `🌱 ماه ۱: چک و دارایی (۱-۳۰)`, callback_data: `sanad_page:1`, style: "primary" },
-    { text: `🏢 ماه ۲: حقوق و وام (۳۱-۶۰)`, callback_data: `sanad_page:4`, style: "primary" },
+    { text: `🌱 ماه ۱: چک و دارایی (۱-۳۰)`, callback_data: `sanad_page:1` },
+    { text: `🏢 ماه ۲: حقوق و وام (۳۱-۶۰)`, callback_data: `sanad_page:4` },
   ]);
   inlineKeyboard.push([
-    { text: `📊 ماه ۳: مالیات و بستن (۶۱-۹۰)`, callback_data: `sanad_page:7`, style: "primary" },
-    { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
+    { text: `📊 ماه ۳: مالیات و بستن (۶۱-۹۰)`, callback_data: `sanad_page:7` },
+    { text: `🏆 کارنامه من`, callback_data: `my_stats` },
   ]);
   inlineKeyboard.push([
-    { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
+    { text: `🏠 منوی اصلی ربات`, callback_data: `main_menu` },
   ]);
 
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
@@ -1277,7 +1269,7 @@ export function formatFeedbackPromptMessage() {
   text += `<i>(برای انصراف دکمه زیر را لمس کنید)</i>`;
 
   const inlineKeyboard = [
-    [{ text: `❌ انصراف و بازگشت به منو`, callback_data: `main_menu`, style: "danger" }],
+    [{ text: `❌ انصراف و بازگشت به منو`, callback_data: `main_menu` }],
   ];
 
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
@@ -1295,32 +1287,32 @@ export function formatAdminPanelMessage(fromId: number | string) {
   text += `👥 <b>تعداد کاربران ثبت‌شده در ربات:</b> <b>${stats.totalUsers}</b> نفر\n`;
   text += `🎯 <b>تست‌های ثبت‌شده در دیتابیس:</b> <b>${stats.totalAnswersAcrossBot}</b> سوال\n`;
   text += `📅 <b>روز جاری دوره ۳ ماهه:</b> روز <b>${scheduler.currentDayNumber}</b> از ۹۰\n`;
-  text += `⏰ <b>وضعیت انتشار خودکار:</b> ${scheduler.enabled ? "🟢 فعال (۴ نوبت در روز)" : "🔴 غیرفعال"}\n`;
+  text += `⏰ <b>وضعیت انتشار خودکار:</b> ${scheduler.enabled ? "فعال (۴ نوبت در روز)" : "غیرفعال"}\n`;
   text += `━━━━━━━━━━━━━━━━━━━━\n`;
   text += `👇 <b>دستورات مدیریتی، ارسال فوری و بکاپ:</b>`;
 
   const inlineKeyboard = [
     [
-      { text: `🟢 📦 دریافت آنی فایل کامل بکاپ 💾 🟢`, callback_data: `admin_backup`, style: "success" },
+      { text: `📦 دریافت آنی فایل کامل بکاپ 💾`, callback_data: `admin_backup` },
     ],
     [
-      { text: `🔵 📥 راهنمای بازگردانی سریع اطلاعات 🔄 🔵`, callback_data: `admin_restore_info`, style: "primary" },
+      { text: `📥 راهنمای بازگردانی سریع اطلاعات 🔄`, callback_data: `admin_restore_info` },
     ],
     [
-      { text: `🟡 ☀️ ارسال فوری صبح (۰۹:۰۰)`, callback_data: `admin_post:morning`, style: "primary" },
-      { text: `🟠 🛠 ارسال فوری ظهر (۱۴:۳۰)`, callback_data: `admin_post:noon`, style: "primary" },
+      { text: `☀️ ارسال فوری صبح (۰۹:۰۰)`, callback_data: `admin_post:morning` },
+      { text: `🛠 ارسال فوری ظهر (۱۴:۳۰)`, callback_data: `admin_post:noon` },
     ],
     [
-      { text: `🟣 📝 ارسال فوری عصر (۲۰:۰۰)`, callback_data: `admin_post:evening`, style: "primary" },
-      { text: `🔵 🌙 ارسال فوری شب (۲۲:۳۰)`, callback_data: `admin_post:late_night`, style: "primary" },
+      { text: `📝 ارسال فوری عصر (۲۰:۰۰)`, callback_data: `admin_post:evening` },
+      { text: `🌙 ارسال فوری شب (۲۲:۳۰)`, callback_data: `admin_post:late_night` },
     ],
     [
-      { text: `🟩 ➕ یک روز جلو (+1)`, callback_data: `admin_day:plus`, style: "success" },
-      { text: `🟥 ➖ یک روز عقب (-1)`, callback_data: `admin_day:minus`, style: "danger" },
+      { text: `➕ یک روز جلو (+1)`, callback_data: `admin_day:plus` },
+      { text: `➖ یک روز عقب (-1)`, callback_data: `admin_day:minus` },
     ],
     [
-      { text: `💎 🔄 ثبت مجدد دکمه منو در تلگرام`, callback_data: `admin_sync_menu`, style: "primary" },
-      { text: `🏡 🏠 منوی اصلی ربات`, callback_data: `main_menu`, style: "primary" },
+      { text: `🔄 ثبت مجدد دکمه منو در تلگرام`, callback_data: `admin_sync_menu` },
+      { text: `🏠 منوی اصلی ربات`, callback_data: `main_menu` },
     ],
   ];
 
@@ -1353,11 +1345,11 @@ export function formatLessonMessage(dayNumber: number) {
 
   const inlineKeyboard = [
     [
-      { text: `📝 شرکت در آزمون تستی روز ${dayNumber} 🎯`, callback_data: `q_show:${dayNumber}`, style: "success" },
+      { text: `📝 شرکت در آزمون تستی روز ${dayNumber} 🎯`, callback_data: `q_show:${dayNumber}` },
     ],
     [
-      { text: `📚 بانک آزمون‌ها ⚡️`, callback_data: `q_page:1`, style: "primary" },
-      { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
+      { text: `📚 بانک آزمون‌ها`, callback_data: `q_page:1` },
+      { text: `🏠 منوی اصلی ربات`, callback_data: `main_menu` },
     ],
   ];
 

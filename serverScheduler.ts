@@ -262,7 +262,7 @@ export function cleanBaleChannel(raw?: string): string {
   return `@${ch}`;
 }
 
-// Ensure Telegram inline keyboard markup strictly adheres to Telegram Bot API specification with style support
+// Ensure Telegram inline keyboard markup strictly adheres to Telegram Bot API specification
 function sanitizeTelegramReplyMarkup(markup: any): any {
   if (!markup || !markup.inline_keyboard) return markup;
   return {
@@ -272,7 +272,7 @@ function sanitizeTelegramReplyMarkup(markup: any): any {
         if (btn.url) cleanBtn.url = btn.url;
         if (btn.callback_data) cleanBtn.callback_data = btn.callback_data;
         if (btn.web_app) cleanBtn.web_app = btn.web_app;
-        if (btn.style) cleanBtn.style = String(btn.style);
+        if (btn.style) cleanBtn.style = btn.style;
         return cleanBtn;
       })
     ),
