@@ -64,14 +64,19 @@ export default function App() {
       .then((r) => r.json())
       .then((data) => {
         if (data.ok && data.config) {
-          setConfig((prev) => ({
-            ...prev,
-            ...data.config,
-            telegramToken: data.config.telegramToken || prev.telegramToken,
-            telegramChannel: data.config.telegramChannel || prev.telegramChannel,
-            baleToken: data.config.baleToken || prev.baleToken,
-            baleChannel: data.config.baleChannel || prev.baleChannel,
-          }));
+          setConfig((prev) => {
+            const next = { ...prev, ...data.config };
+            for (const key of Object.keys(data.config)) {
+              const serverVal = data.config[key];
+              const prevVal = (prev as any)[key];
+              if (serverVal !== undefined && serverVal !== "") {
+                (next as any)[key] = serverVal;
+              } else if (prevVal !== undefined && prevVal !== "") {
+                (next as any)[key] = prevVal;
+              }
+            }
+            return next;
+          });
         }
       })
       .catch((e) => console.log("Server bot-config not yet created:", e));

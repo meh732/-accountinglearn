@@ -85,14 +85,53 @@ function saveUserDatabase(db: BotUserDatabase) {
 
 let dbInstance: BotUserDatabase = loadUserDatabase();
 
-// Check if user is recognized as main administrator
+// Helper to check if any admin ID has been configured
+export function hasConfiguredAdmin(): boolean {
+  const conf = loadServerBotConfig();
+  const envAdmin = sanitizeValue(process.env.TELEGRAM_ADMIN_CHAT_ID);
+  const confAdmin = sanitizeValue(conf.telegramAdminChatId);
+  return envAdmin !== "" || confAdmin !== "";
+}
+
+// Check if user is recognized as main administrator with automatic first-user claim
 export function isBotAdmin(userIdOrChatId: number | string): boolean {
   const cleanId = sanitizeValue(userIdOrChatId);
   if (!cleanId) return false;
   const conf = loadServerBotConfig();
   const envAdmin = sanitizeValue(process.env.TELEGRAM_ADMIN_CHAT_ID);
   const confAdmin = sanitizeValue(conf.telegramAdminChatId);
-  return (envAdmin !== "" && cleanId === envAdmin) || (confAdmin !== "" && cleanId === confAdmin);
+
+  // 1. Direct match with env or config
+  if ((envAdmin !== "" && cleanId === envAdmin) || (confAdmin !== "" && cleanId === confAdmin)) {
+    return true;
+  }
+
+  // 2. Match with comma-separated or space-separated list of admin IDs
+  const allAdminIds = [
+    ...(envAdmin ? envAdmin.split(/[,;\s]+/) : []),
+    ...(confAdmin ? confAdmin.split(/[,;\s]+/) : []),
+  ].map((s) => s.trim()).filter(Boolean);
+
+  if (allAdminIds.includes(cleanId)) {
+    return true;
+  }
+
+  // 3. Auto-claim: If NO admin ID is configured anywhere yet, claim this user as the primary admin
+  if (allAdminIds.length === 0) {
+    console.log(`[AutoAdmin] No admin configured. Automatically granting and saving primary admin to User ID: ${cleanId}`);
+    try {
+      process.env.TELEGRAM_ADMIN_CHAT_ID = cleanId;
+      saveServerBotConfig({
+        ...conf,
+        telegramAdminChatId: cleanId,
+      });
+    } catch (e) {
+      console.warn("[AutoAdmin] Could not save auto-claimed admin config:", e);
+    }
+    return true;
+  }
+
+  return false;
 }
 
 // Generate snapshot and send full backup file directly to Telegram chat
@@ -494,7 +533,7 @@ export function formatQuizMessage(dayNumber: number, user?: TelegramBotUser) {
   return { text, reply_markup: { inline_keyboard: inlineKeyboard } };
 }
 
-// Persistent Reply Keyboard for Telegram Chat Bar (مربع منو در پایین کادر چت)
+// Persistent Reply Keyboard for Telegram Chat Bar (منوی زیر کادر چت با قابلیت جمع‌شدن خودکار)
 export const BOT_PERSISTENT_REPLY_KEYBOARD = {
   keyboard: [
     [{ text: "📝 آزمون تستی امروز" }, { text: "🏆 کارنامه و رتبه من" }],
@@ -502,7 +541,8 @@ export const BOT_PERSISTENT_REPLY_KEYBOARD = {
     [{ text: "📖 درس و آموزش امروز" }, { text: "❓ راهنما و پشتیبانی" }],
   ],
   resize_keyboard: true,
-  is_persistent: true,
+  is_persistent: false,
+  one_time_keyboard: true,
 };
 
 // Return persistent reply keyboard customized for role (shows Admin & Backup buttons for admin)
@@ -516,7 +556,8 @@ export function getPersistentKeyboardForUser(userIdOrChatId: number | string) {
         [{ text: "🏠 منوی اصلی ربات" }, { text: "❓ راهنما و پشتیبانی" }],
       ],
       resize_keyboard: true,
-      is_persistent: true,
+      is_persistent: false,
+      one_time_keyboard: true,
     };
   }
   return BOT_PERSISTENT_REPLY_KEYBOARD;
@@ -726,24 +767,24 @@ export function formatMainMenuMessage(user: TelegramBotUser, channelSignature?: 
 
   if (isBotAdmin(user.userId)) {
     inlineKeyboard.push([
-      { text: `👑 پنل مدیریت و دریافت فایل پشتیبان (بکاپ) 📦`, callback_data: `admin_panel`, style: "success" },
+      { text: `👑 🟢 پنل مدیریت و دریافت بکاپ 📦 🟢`, callback_data: `admin_panel`, style: "success" },
     ]);
   }
 
   inlineKeyboard.push(
     [
-      { text: `📝 شروع آزمون تستی امروز 🎯`, callback_data: `q_today`, style: "success" },
+      { text: `🎯 🟢 شروع آزمون تستی امروز 🎯`, callback_data: `q_today`, style: "success" },
     ],
     [
-      { text: `📚 بانک جامع ۹۰ آزمون دوره ⚡️`, callback_data: `q_page:1`, style: "primary" },
-      { text: `🏆 کارنامه و سوابق من ⭐️`, callback_data: `my_stats`, style: "success" },
+      { text: `⚡️ 🔵 بانک جامع ۹۰ آزمون 📚`, callback_data: `q_page:1`, style: "primary" },
+      { text: `⭐️ 🟡 کارنامه و سوابق من 🏆`, callback_data: `my_stats`, style: "success" },
     ],
     [
-      { text: `🥇 جدول رتبه‌بندی نخبگان 💎`, callback_data: `leaderboard`, style: "primary" },
-      { text: `📖 آموزش روز (درس امروز) ☀️`, callback_data: `q_lesson_today`, style: "primary" },
+      { text: `💎 🟣 جدول نخبگان و رتبه‌بندی 🥇`, callback_data: `leaderboard`, style: "primary" },
+      { text: `☀️ 🟠 درس و آموزش امروز 📖`, callback_data: `q_lesson_today`, style: "primary" },
     ],
     [
-      { text: `❓ راهنمای دستورات ربات 💡`, callback_data: `help_cmd`, style: "primary" },
+      { text: `💡 🔵 راهنمای دستورات ربات ❓`, callback_data: `help_cmd`, style: "primary" },
     ]
   );
 
@@ -769,26 +810,26 @@ export function formatAdminPanelMessage(fromId: number | string) {
 
   const inlineKeyboard = [
     [
-      { text: `📦 دریافت آنی فایل کامل بکاپ 💾`, callback_data: `admin_backup` },
+      { text: `🟢 📦 دریافت آنی فایل کامل بکاپ 💾 🟢`, callback_data: `admin_backup`, style: "success" },
     ],
     [
-      { text: `📥 راهنمای بازگردانی سریع اطلاعات 🔄`, callback_data: `admin_restore_info` },
+      { text: `🔵 📥 راهنمای بازگردانی سریع اطلاعات 🔄 🔵`, callback_data: `admin_restore_info`, style: "primary" },
     ],
     [
-      { text: `☀️ ارسال فوری صبح (۰۹:۰۰)`, callback_data: `admin_post:morning` },
-      { text: `🛠 ارسال فوری ظهر (۱۴:۳۰)`, callback_data: `admin_post:noon` },
+      { text: `🟡 ☀️ ارسال فوری صبح (۰۹:۰۰)`, callback_data: `admin_post:morning`, style: "primary" },
+      { text: `🟠 🛠 ارسال فوری ظهر (۱۴:۳۰)`, callback_data: `admin_post:noon`, style: "primary" },
     ],
     [
-      { text: `📝 ارسال فوری عصر (۲۰:۰۰)`, callback_data: `admin_post:evening` },
-      { text: `🌙 ارسال فوری شب (۲۲:۳۰)`, callback_data: `admin_post:late_night` },
+      { text: `🟣 📝 ارسال فوری عصر (۲۰:۰۰)`, callback_data: `admin_post:evening`, style: "primary" },
+      { text: `🔵 🌙 ارسال فوری شب (۲۲:۳۰)`, callback_data: `admin_post:late_night`, style: "primary" },
     ],
     [
-      { text: `➕ یک روز جلو (+1)`, callback_data: `admin_day:plus` },
-      { text: `➖ یک روز عقب (-1)`, callback_data: `admin_day:minus` },
+      { text: `🟩 ➕ یک روز جلو (+1)`, callback_data: `admin_day:plus`, style: "success" },
+      { text: `🟥 ➖ یک روز عقب (-1)`, callback_data: `admin_day:minus`, style: "danger" },
     ],
     [
-      { text: `🔄 ثبت مجدد دکمه منو در تلگرام`, callback_data: `admin_sync_menu` },
-      { text: `🏠 منوی اصلی ربات`, callback_data: `main_menu` },
+      { text: `💎 🔄 ثبت مجدد دکمه منو در تلگرام`, callback_data: `admin_sync_menu`, style: "primary" },
+      { text: `🏡 🏠 منوی اصلی ربات`, callback_data: `main_menu`, style: "primary" },
     ],
   ];
 
@@ -852,6 +893,7 @@ function cleanTelegramReplyMarkup(markup: any): any {
           if (btn.url) clean.url = String(btn.url);
           if (btn.callback_data !== undefined) clean.callback_data = String(btn.callback_data);
           if (btn.web_app) clean.web_app = btn.web_app;
+          if (btn.style) clean.style = String(btn.style);
           return clean;
         })
       ),
@@ -863,8 +905,8 @@ function cleanTelegramReplyMarkup(markup: any): any {
         row.map((btn: any) => ({ text: typeof btn === "string" ? btn : String(btn.text || "") }))
       ),
       resize_keyboard: markup.resize_keyboard ?? true,
-      is_persistent: markup.is_persistent ?? true,
-      one_time_keyboard: markup.one_time_keyboard ?? false,
+      is_persistent: markup.is_persistent ?? false,
+      one_time_keyboard: markup.one_time_keyboard ?? true,
     };
   }
   return markup;
@@ -1003,19 +1045,19 @@ export async function processTelegramUpdate(token: string, update: any, currentD
 
         const inlineKeyboard = [
           [
-            { text: `1️⃣ گزینه ۱`, callback_data: `q_ans:${day}:0` },
-            { text: `2️⃣ گزینه ۲`, callback_data: `q_ans:${day}:1` },
+            { text: `🔵 1️⃣ گزینه ۱`, callback_data: `q_ans:${day}:0`, style: "primary" },
+            { text: `🟢 2️⃣ گزینه ۲`, callback_data: `q_ans:${day}:1`, style: "success" },
           ],
           [
-            { text: `3️⃣ گزینه ۳`, callback_data: `q_ans:${day}:2` },
-            { text: `4️⃣ گزینه ۴`, callback_data: `q_ans:${day}:3` },
+            { text: `🟡 3️⃣ گزینه ۳`, callback_data: `q_ans:${day}:2`, style: "primary" },
+            { text: `🟣 4️⃣ گزینه ۴`, callback_data: `q_ans:${day}:3`, style: "danger" },
           ],
           [
-            { text: `🏆 کارنامه من`, callback_data: `my_stats` },
-            { text: `📚 بانک ۹۰ آزمون`, callback_data: `q_page:1` },
+            { text: `🏆 کارنامه من ⭐️`, callback_data: `my_stats`, style: "success" },
+            { text: `📚 بانک ۹۰ آزمون ⚡️`, callback_data: `q_page:1`, style: "primary" },
           ],
           [
-            { text: `🏠 منوی اصلی`, callback_data: `main_menu` },
+            { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
           ],
         ];
 
@@ -1159,8 +1201,8 @@ export async function processTelegramUpdate(token: string, update: any, currentD
 
         const inlineKeyboard = [
           [
-            { text: `📝 شروع آزمون`, callback_data: `q_today` },
-            { text: `🏠 منوی اصلی`, callback_data: `main_menu` },
+            { text: `📝 شروع آزمون امروز 🎯`, callback_data: `q_today`, style: "success" },
+            { text: `🏠 منوی اصلی ربات 📌`, callback_data: `main_menu`, style: "primary" },
           ],
         ];
 
@@ -1224,8 +1266,8 @@ export async function processTelegramUpdate(token: string, update: any, currentD
 
         const inlineKeyboard = [
           [
-            { text: `📦 دریافت فایل فعلی بکاپ 💾`, callback_data: `admin_backup` },
-            { text: `👑 بازگشت به پنل ادمین`, callback_data: `admin_panel` },
+            { text: `🟢 📦 دریافت فایل فعلی بکاپ 💾 🟢`, callback_data: `admin_backup`, style: "success" },
+            { text: `👑 🔵 بازگشت به پنل ادمین ⚙️ 🔵`, callback_data: `admin_panel`, style: "primary" },
           ],
         ];
 
@@ -1459,6 +1501,42 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         return;
       }
 
+      // Handle /id or /myid (نمایش شناسه عددی کاربر جهت تنظیم در پنل)
+      if (text === "/id" || text === "/myid" || text === "شناسه من" || text === "آیدی من") {
+        const isAdmin = isBotAdmin(from.id);
+        let idMsg = `🆔 <b>شناسه عددی تلگرام شما:</b> <code>${from.id}</code>\n`;
+        idMsg += `👤 <b>نام:</b> ${from.first_name} ${from.last_name || ""}\n`;
+        if (from.username) idMsg += `🏷 <b>نام‌کاربری:</b> @${from.username}\n`;
+        idMsg += `🛡 <b>سطح دسترسی:</b> ${isAdmin ? "👑 مدیر سامانه (Admin)" : "👤 کاربر عادی"}\n\n`;
+        if (!isAdmin) {
+          idMsg += `💡 اگر شما مالک/مدیر سامانه هستید، این شناسه عددی (<code>${from.id}</code>) را در <b>پنل وب -> تنظیمات -> شناسه ادمین تلگرام</b> وارد نمایید یا دستور <code>/claim</code> را ارسال فرمایید.`;
+        }
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: idMsg,
+          parse_mode: "HTML",
+          reply_markup: getPersistentKeyboardForUser(from.id),
+        });
+        return;
+      }
+
+      // Handle /claim (Claim admin rights if not claimed or for owner)
+      if (text === "/claim" || text === "/claim_admin") {
+        const conf = loadServerBotConfig();
+        process.env.TELEGRAM_ADMIN_CHAT_ID = String(from.id);
+        saveServerBotConfig({
+          ...conf,
+          telegramAdminChatId: String(from.id),
+        });
+        await callTelegramApi(token, "sendMessage", {
+          chat_id: chatId,
+          text: `👑 <b>تبریک! شناسه شما (<code>${from.id}</code>) به عنوان مدیر کل سامانه حسابداری تأیید شد.</b>\n\nاکنون می‌توانید از دستور <code>/admin</code> یا دکمه «پنل مدیریت» در کیبورد استفاده کنید.`,
+          parse_mode: "HTML",
+          reply_markup: getPersistentKeyboardForUser(from.id),
+        });
+        return;
+      }
+
       // Handle Admin Panel trigger (/admin or keyboard button)
       if (
         text === "/admin" ||
@@ -1471,7 +1549,12 @@ export async function processTelegramUpdate(token: string, update: any, currentD
         if (!isBotAdmin(from.id)) {
           await callTelegramApi(token, "sendMessage", {
             chat_id: chatId,
-            text: `⛔️ <b>دسترسی غیرمجاز:</b> این دستور منحصراً مختص مدیر سامانه حسابداری است.`,
+            text:
+              `⛔️ <b>دسترسی غیرمجاز:</b> این دستور مختص مدیر سامانه حسابداری است.\n\n` +
+              `🔢 <b>شناسه عددی تلگرام شما:</b> <code>${from.id}</code>\n\n` +
+              `💡 <b>راهنمای فعال‌سازی ادمین:</b>\n` +
+              `۱️⃣ در پنل وب به بخش <b>تنظیمات -> توکن‌ها و کانال‌ها</b> بروید و شناسه <code>${from.id}</code> را در کادر <b>شناسه ادمین تلگرام</b> ذخیره کنید.\n` +
+              `۲️⃣ یا دستور <code>/claim</code> را در همین چت ارسال نمایید.`,
             parse_mode: "HTML",
             reply_markup: getPersistentKeyboardForUser(from.id),
           });

@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+bot-config.json*
+users-quiz-data.json*
+scheduler-state.json*
+data_persistence/
+*.bak

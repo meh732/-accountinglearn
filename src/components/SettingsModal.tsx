@@ -391,7 +391,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
                       توکن ربات تلگرام (Bot Token):
@@ -417,6 +417,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-sky-500"
                     />
                   </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-amber-300 mb-1 flex items-center justify-between">
+                      <span>👑 شناسه ادمین تلگرام (Chat ID):</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="مثلاً 123456789 (جهت دسترسی به /admin)"
+                      value={formData.telegramAdminChatId || ""}
+                      onChange={(e) => setFormData({ ...formData, telegramAdminChatId: e.target.value })}
+                      className="w-full bg-slate-900 border border-amber-500/40 rounded-xl px-3 py-2 text-xs text-amber-200 font-mono focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-1 text-[11px] text-slate-400 flex items-center gap-1.5">
+                  <span className="text-amber-400">💡</span>
+                  <span>کاربر با این شناسه عددی به دستور <code>/admin</code>، دریافت فوری بکاپ و مدیریت ربات دسترسی انحصاری خواهد داشت (دستور <code>/claim</code> در ربات نیز شناسه را ثبت می‌کند).</span>
                 </div>
 
                 {/* Sync Menu Action & Instructions */}
@@ -499,7 +517,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                   <div>
                     <label className="block text-xs font-semibold text-slate-300 mb-1">
                       توکن ربات بله (Bale Bot Token):
@@ -523,6 +541,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       value={formData.baleChannel}
                       onChange={(e) => setFormData({ ...formData, baleChannel: e.target.value })}
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-emerald-300 mb-1">
+                      شناسه ادمین بله (Chat ID):
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="مثلاً 123456789 یا @my_admin"
+                      value={formData.baleAdminChatId || ""}
+                      onChange={(e) => setFormData({ ...formData, baleAdminChatId: e.target.value })}
+                      className="w-full bg-slate-900 border border-emerald-500/40 rounded-xl px-3 py-2 text-xs text-emerald-200 font-mono focus:outline-none focus:border-emerald-400"
                     />
                   </div>
                 </div>

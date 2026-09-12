@@ -706,12 +706,16 @@ do_update() {
         cp -f "${APP_DIR}/users-quiz-data.json" "${APP_DIR}/users-quiz-data.json.bak" 2>/dev/null || true
         cp -f "${APP_DIR}/scheduler-state.json" "${APP_DIR}/scheduler-state.json.bak" 2>/dev/null || true
 
-        # Mirror to data_persistence before pulling updates
-        mkdir -p "${APP_DIR}/data_persistence" 2>/dev/null || true
-        [ -f "${APP_DIR}/users-quiz-data.json" ] && cp -f "${APP_DIR}/users-quiz-data.json" "${APP_DIR}/data_persistence/users-quiz-data.json" 2>/dev/null || true
-        [ -f "${APP_DIR}/bot-config.json" ] && cp -f "${APP_DIR}/bot-config.json" "${APP_DIR}/data_persistence/bot-config.json" 2>/dev/null || true
-        [ -f "${APP_DIR}/scheduler-state.json" ] && cp -f "${APP_DIR}/scheduler-state.json" "${APP_DIR}/data_persistence/scheduler-state.json" 2>/dev/null || true
-        [ -f "${APP_DIR}/.env" ] && cp -f "${APP_DIR}/.env" "${APP_DIR}/data_persistence/.env" 2>/dev/null || true
+        # Mirror to system persistent directories and data_persistence before pulling updates
+        mkdir -p "${APP_DIR}/data_persistence" /etc/accountinglearn /var/lib/accountinglearn /opt/accountinglearn_data 2>/dev/null || true
+        for bfile in .env bot-config.json users-quiz-data.json scheduler-state.json; do
+            if [ -f "${APP_DIR}/${bfile}" ]; then
+                cp -f "${APP_DIR}/${bfile}" "${APP_DIR}/data_persistence/${bfile}" 2>/dev/null || true
+                cp -f "${APP_DIR}/${bfile}" "/etc/accountinglearn/${bfile}" 2>/dev/null || true
+                cp -f "${APP_DIR}/${bfile}" "/var/lib/accountinglearn/${bfile}" 2>/dev/null || true
+                cp -f "${APP_DIR}/${bfile}" "/opt/accountinglearn_data/${bfile}" 2>/dev/null || true
+            fi
+        done
 
         git stash 2>/dev/null || true
         git pull origin main || git pull origin master || git pull || true
@@ -723,10 +727,18 @@ do_update() {
         [ -f "${APP_DIR}/users-quiz-data.json.bak" ] && cp -f "${APP_DIR}/users-quiz-data.json.bak" "${APP_DIR}/users-quiz-data.json"
         [ -f "${APP_DIR}/scheduler-state.json.bak" ] && cp -f "${APP_DIR}/scheduler-state.json.bak" "${APP_DIR}/scheduler-state.json"
 
-        # Auto-recover from data_persistence if any file is missing
-        [ ! -f "${APP_DIR}/users-quiz-data.json" ] && [ -f "${APP_DIR}/data_persistence/users-quiz-data.json" ] && cp -f "${APP_DIR}/data_persistence/users-quiz-data.json" "${APP_DIR}/users-quiz-data.json"
-        [ ! -f "${APP_DIR}/bot-config.json" ] && [ -f "${APP_DIR}/data_persistence/bot-config.json" ] && cp -f "${APP_DIR}/data_persistence/bot-config.json" "${APP_DIR}/bot-config.json"
-        [ ! -f "${APP_DIR}/scheduler-state.json" ] && [ -f "${APP_DIR}/data_persistence/scheduler-state.json" ] && cp -f "${APP_DIR}/data_persistence/scheduler-state.json" "${APP_DIR}/scheduler-state.json"
+        # Auto-recover from system persistent directories if any file is missing or empty
+        for bfile in .env bot-config.json users-quiz-data.json scheduler-state.json; do
+            if [ ! -s "${APP_DIR}/${bfile}" ]; then
+                if [ -s "/etc/accountinglearn/${bfile}" ]; then
+                    cp -f "/etc/accountinglearn/${bfile}" "${APP_DIR}/${bfile}"
+                elif [ -s "/var/lib/accountinglearn/${bfile}" ]; then
+                    cp -f "/var/lib/accountinglearn/${bfile}" "${APP_DIR}/${bfile}"
+                elif [ -s "${APP_DIR}/data_persistence/${bfile}" ]; then
+                    cp -f "${APP_DIR}/data_persistence/${bfile}" "${APP_DIR}/${bfile}"
+                fi
+            fi
+        done
 
         rm -f "${APP_DIR}/.env.bak" "${APP_DIR}/bot-config.json.bak" "${APP_DIR}/users-quiz-data.json.bak" "${APP_DIR}/scheduler-state.json.bak"
     else
