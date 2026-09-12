@@ -354,6 +354,21 @@ configure_bot_and_admin() {
     fi
 
     log_success "Administrator and Bot credentials saved to .env."
+    # Also synchronize to bot-config.json
+    node -e "
+const fs = require('fs');
+const p = '${APP_DIR}/bot-config.json';
+let cfg = {};
+try { if (fs.existsSync(p)) cfg = JSON.parse(fs.readFileSync(p, 'utf-8')); } catch(e){}
+if ('${new_tg_token}') cfg.telegramToken = '${new_tg_token}';
+if ('${new_tg_channel}') cfg.telegramChannel = '${new_tg_channel}';
+if ('${new_tg_admin}') cfg.telegramAdminChatId = '${new_tg_admin}';
+if ('${new_bale_token}') cfg.baleToken = '${new_bale_token}';
+if ('${new_bale_channel}') cfg.baleChannel = '${new_bale_channel}';
+if ('${new_bale_admin}') cfg.baleAdminChatId = '${new_bale_admin}';
+fs.writeFileSync(p, JSON.stringify(cfg, null, 2), 'utf-8');
+" 2>/dev/null || true
+
     if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
         log_info "Restarting ${SERVICE_NAME} to apply updated credentials..."
         systemctl restart "${SERVICE_NAME}" || true
@@ -477,6 +492,7 @@ After=network.target
 Type=simple
 User=${run_user}
 WorkingDirectory=${APP_DIR}
+EnvironmentFile=-${APP_DIR}/.env
 ExecStart=${node_path} ${APP_DIR}/dist/server.cjs --port ${PORT}
 Restart=always
 RestartSec=5
@@ -821,6 +837,7 @@ After=network.target
 Type=simple
 User=${run_user}
 WorkingDirectory=${APP_DIR}
+EnvironmentFile=-${APP_DIR}/.env
 ExecStart=${node_path} ${APP_DIR}/dist/server.cjs --port ${new_port}
 Restart=always
 RestartSec=5

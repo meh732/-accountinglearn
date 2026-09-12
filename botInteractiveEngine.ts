@@ -620,15 +620,68 @@ let pollingAbortController: AbortController | null = null;
 let lastUpdateId = 0;
 let botUsername = "";
 
-// Telegram API Caller Helper
+// Helper to sanitize reply markup for Telegram Bot API specification
+function cleanTelegramReplyMarkup(markup: any): any {
+  if (!markup) return markup;
+  if (markup.inline_keyboard && Array.isArray(markup.inline_keyboard)) {
+    return {
+      inline_keyboard: markup.inline_keyboard.map((row: any[]) =>
+        row.map((btn: any) => {
+          const clean: Record<string, any> = { text: String(btn.text || "") };
+          if (btn.url) clean.url = String(btn.url);
+          if (btn.callback_data !== undefined) clean.callback_data = String(btn.callback_data);
+          if (btn.web_app) clean.web_app = btn.web_app;
+          return clean;
+        })
+      ),
+    };
+  }
+  if (markup.keyboard && Array.isArray(markup.keyboard)) {
+    return {
+      keyboard: markup.keyboard.map((row: any[]) =>
+        row.map((btn: any) => ({ text: typeof btn === "string" ? btn : String(btn.text || "") }))
+      ),
+      resize_keyboard: markup.resize_keyboard ?? true,
+      is_persistent: markup.is_persistent ?? true,
+      one_time_keyboard: markup.one_time_keyboard ?? false,
+    };
+  }
+  return markup;
+}
+
+// Telegram API Caller Helper with HTML parse fallback and markup sanitization
 async function callTelegramApi(token: string, method: string, payload: Record<string, any>) {
   const url = `https://api.telegram.org/bot${token}/${method}`;
-  const res = await fetch(url, {
+  const cleanPayload = { ...payload };
+  if (cleanPayload.reply_markup) {
+    cleanPayload.reply_markup = cleanTelegramReplyMarkup(cleanPayload.reply_markup);
+  }
+
+  let res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(cleanPayload),
   });
-  return await res.json();
+  let data = await res.json();
+
+  // Retry without parse_mode if Telegram rejected HTML entities
+  if (!data.ok && typeof data.description === "string" && data.description.includes("can't parse entities") && cleanPayload.text) {
+    const plainText = cleanPayload.text.replace(/<[^>]*>/g, "");
+    const fallbackPayload = {
+      ...cleanPayload,
+      text: plainText,
+      parse_mode: undefined,
+    };
+    delete fallbackPayload.parse_mode;
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(fallbackPayload),
+    });
+    data = await res.json();
+  }
+
+  return data;
 }
 
 // Process a single Telegram Update (Message or CallbackQuery)

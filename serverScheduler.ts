@@ -231,6 +231,70 @@ export function getSlotContent(
   };
 }
 
+// Helper to format/clean Telegram Channel ID or Username
+export function cleanTelegramChannel(raw?: string): string {
+  if (!raw) return "";
+  let ch = raw.trim();
+  // Strip URL if user pasted full t.me link
+  ch = ch.replace(/^(https?:\/\/)?(www\.)?t\.me\//i, "");
+  // If numeric ID (positive or negative)
+  if (/^-?\d+$/.test(ch)) {
+    // If it's a positive 9-10 digit number that is meant for supergroup/channel, ensure -100 prefix if needed
+    if (!ch.startsWith("-") && ch.length >= 9) {
+      return `-100${ch}`;
+    }
+    return ch;
+  }
+  // Strip leading @ and prepend clean @
+  ch = ch.replace(/^@+/, "");
+  return `@${ch}`;
+}
+
+// Helper to clean Bale Channel
+export function cleanBaleChannel(raw?: string): string {
+  if (!raw) return "";
+  let ch = raw.trim();
+  ch = ch.replace(/^(https?:\/\/)?(www\.)?ble\.ir\//i, "");
+  if (/^-?\d+$/.test(ch)) {
+    return ch;
+  }
+  ch = ch.replace(/^@+/, "");
+  return `@${ch}`;
+}
+
+// Ensure Telegram inline keyboard markup strictly adheres to Telegram Bot API specification (removes unofficial style attributes)
+function sanitizeTelegramReplyMarkup(markup: any): any {
+  if (!markup || !markup.inline_keyboard) return markup;
+  return {
+    inline_keyboard: markup.inline_keyboard.map((row: any[]) =>
+      row.map((btn: any) => {
+        const cleanBtn: Record<string, any> = { text: String(btn.text) };
+        if (btn.url) cleanBtn.url = btn.url;
+        if (btn.callback_data) cleanBtn.callback_data = btn.callback_data;
+        if (btn.web_app) cleanBtn.web_app = btn.web_app;
+        return cleanBtn;
+      })
+    ),
+  };
+}
+
+// Translate common Telegram Bot errors to clear actionable Persian advice
+function translateTelegramError(desc: string, channel: string): string {
+  if (desc.includes("chat not found")) {
+    return `کانال با آیدی (${channel}) یافت نشد! اگر کانال عمومی است نام کاربری (مثلاً @mychannel) و اگر خصوصی است شناسه عددی با پیشوند -100 را وارد کنید.`;
+  }
+  if (desc.includes("bot is not a member") || desc.includes("not an administrator") || desc.includes("have no rights to send a message")) {
+    return `ربات به عنوان مدیر (ادمین) در کانال عضو نشده است! لطفاً به تنظیمات کانال رفته و ربات را با دسترسی «ارسال پیام» مدیر (Administrator) نمایید.`;
+  }
+  if (desc.includes("Unauthorized") || desc.includes("Not Found")) {
+    return `توکن ربات تلگرام نامعتبر است. لطفاً توکن دریافتی از @BotFather را مجدداً بررسی نمایید.`;
+  }
+  if (desc.includes("can't parse entities")) {
+    return `خطای نگارشی در تگ‌های متن پیام ارسالی.`;
+  }
+  return desc;
+}
+
 // Dispatch message to Telegram & Bale Channels
 export async function dispatchToChannels(
   text: string,
@@ -246,10 +310,13 @@ export async function dispatchToChannels(
   bale: { ok: boolean; messageId?: number; error?: string; simulated?: boolean };
 }> {
   const serverConfig = loadServerBotConfig();
-  const tgToken = options?.telegramToken || serverConfig.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
-  const tgChannel = options?.telegramChannel || serverConfig.telegramChannel || process.env.TELEGRAM_CHANNEL_ID;
-  const baleToken = options?.baleToken || serverConfig.baleToken || process.env.BALE_BOT_TOKEN;
-  const baleChannel = options?.baleChannel || serverConfig.baleChannel || process.env.BALE_CHANNEL_ID;
+  const tgToken = (options?.telegramToken || serverConfig.telegramToken || process.env.TELEGRAM_BOT_TOKEN || "").trim();
+  const rawTgChannel = (options?.telegramChannel || serverConfig.telegramChannel || process.env.TELEGRAM_CHANNEL_ID || "").trim();
+  const baleToken = (options?.baleToken || serverConfig.baleToken || process.env.BALE_BOT_TOKEN || "").trim();
+  const rawBaleChannel = (options?.baleChannel || serverConfig.baleChannel || process.env.BALE_CHANNEL_ID || "").trim();
+
+  const tgChannel = cleanTelegramChannel(rawTgChannel);
+  const baleChannel = cleanBaleChannel(rawBaleChannel);
 
   const result = {
     telegram: { ok: false, messageId: undefined as number | undefined, error: undefined as string | undefined, simulated: false },
@@ -266,22 +333,42 @@ export async function dispatchToChannels(
         disable_web_page_preview: false,
       };
       if (options?.replyMarkup) {
-        payload.reply_markup = options.replyMarkup;
+        payload.reply_markup = sanitizeTelegramReplyMarkup(options.replyMarkup);
       }
 
-      const tgRes = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+      let tgRes = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await tgRes.json();
+      let data = await tgRes.json();
+
+      // If Telegram returned "can't parse entities", retry with plain text stripped of HTML tags
+      if (!data.ok && typeof data.description === "string" && data.description.includes("can't parse entities")) {
+        console.warn("[Scheduler] Telegram HTML entity parse error. Retrying with stripped plain text...");
+        const plainText = text.replace(/<[^>]*>/g, "");
+        const fallbackPayload = {
+          ...payload,
+          text: plainText,
+          parse_mode: undefined,
+        };
+        delete fallbackPayload.parse_mode;
+        tgRes = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(fallbackPayload),
+        });
+        data = await tgRes.json();
+      }
+
       if (data.ok) {
         result.telegram = { ok: true, messageId: data.result?.message_id, error: undefined, simulated: false };
       } else {
-        result.telegram = { ok: false, messageId: undefined, error: data.description || "خطای ارسال در تلگرام", simulated: false };
+        const translatedErr = translateTelegramError(data.description || "خطای ارسال در تلگرام", tgChannel);
+        result.telegram = { ok: false, messageId: undefined, error: translatedErr, simulated: false };
       }
     } catch (err: any) {
-      result.telegram = { ok: false, messageId: undefined, error: err.message || "خطای ارتباط با سرور تلگرام", simulated: false };
+      result.telegram = { ok: false, messageId: undefined, error: err.message || "خطای ارتباط با سرور تلگرام (بررسی فیلترینگ یا اینترنت سرور)", simulated: false };
     }
   } else {
     result.telegram = {
