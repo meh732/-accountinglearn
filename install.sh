@@ -1088,7 +1088,47 @@ diagnose_telegram_and_channel() {
                         echo -e "   ${YELLOW}════════════════════════════════════════════════════════════════${NC}"
                     fi
 
-                    # 6. Offer Live Test Message
+                    # 6. Direct Message Test to Admin
+                    if [ -n "$tg_admin" ]; then
+                        echo ""
+                        echo -e "6. Testing Direct Private Chat with Admin ID (${CYAN}${tg_admin}${NC})..."
+                        local dm_text="👋 <b>سلام ادمین گرامی!</b>%0A%0A✅ ارتباط مستقیم دوطرفه ربات با حساب شما برقرار است.%0A🚀 برای کار با ربات، در همین چت روی دستور /start بزنید تا منوی دکمه‌ای فعال شود."
+                        local dm_payload="{\"chat_id\":\"${tg_admin}\",\"text\":\"${dm_text}\",\"parse_mode\":\"HTML\",\"reply_markup\":{\"keyboard\":[[{\"text\":\"📝 آزمون تستی امروز\"},{\"text\":\"📚 بانک ۹۰ آزمون دوره\"}],[{\"text\":\"🏆 کارنامه و رتبه من\"},{\"text\":\"📖 درس و آموزش امروز\"}],[{\"text\":\"👑 پنل مدیریت ادمین ⚙️\"},{\"text\":\"📦 دریافت آنی بکاپ 💾\"}],[{\"text\":\"🏠 منوی اصلی ربات\"},{\"text\":\"❓ راهنما و پشتیبانی\"}]],\"resize_keyboard\":true,\"is_persistent\":true}}"
+                        local dm_res
+                        dm_res=$(curl -s -m 15 -X POST "https://api.telegram.org/bot${tg_token}/sendMessage" \
+                            -H "Content-Type: application/json" \
+                            -d "${dm_payload}" 2>&1 || echo "")
+                        if echo "$dm_res" | grep -q '"ok":true'; then
+                            echo -e "   ${GREEN}● Direct test message successfully sent to Admin (@${bot_username} -> You)!${NC}"
+                            echo -e "   👉 Check your Telegram private chat with @${bot_username} now."
+                        else
+                            local dm_err
+                            dm_err=$(echo "$dm_res" | grep -o '"description":"[^"]*' | head -n1 | cut -d'"' -f4 || echo "$dm_res")
+                            echo -e "   ${YELLOW}⚠️ Could not send direct message to Admin ID ${tg_admin}: ${dm_err}${NC}"
+                            echo -e "   ${YELLOW}👉 Make sure you have opened @${bot_username} in Telegram and sent /start at least once.${NC}"
+                        fi
+                    fi
+
+                    # 7. Check Systemd Service Status
+                    echo ""
+                    echo -e "7. Checking Background Interactive Service (${SERVICE_NAME})..."
+                    if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+                        echo -e "   ${GREEN}● Backend Node.js Service is RUNNING! (Interactive polling active)${NC}"
+                    else
+                        echo -e "   ${RED}❌ Backend Service is STOPPED or NOT RUNNING!${NC}"
+                        echo -e "   ${YELLOW}👉 This is why the bot does not respond to /start in real-time!${NC}"
+                        echo -e "   👉 Starting service now..."
+                        run_as_root systemctl daemon-reload
+                        run_as_root systemctl restart "${SERVICE_NAME}" 2>/dev/null || true
+                        sleep 2
+                        if systemctl is-active --quiet "${SERVICE_NAME}" 2>/dev/null; then
+                            echo -e "   ${GREEN}● Service has been STARTED successfully!${NC}"
+                        else
+                            echo -e "   ${RED}❌ Please run option 19 (Rebuild & Restart) to compile and launch the service.${NC}"
+                        fi
+                    fi
+
+                    # 8. Offer Live Test Message to Channel
                     echo ""
                     prompt_user "Would you like to send a LIVE TEST POST to ${probe_ch} right now? [y/N]: " send_test "N"
                     if [[ "$send_test" =~ ^[Yy]$ ]]; then
@@ -1600,6 +1640,14 @@ while [[ $# -gt 0 ]]; do
             CLI_ACTION="uninstall"
             shift
             ;;
+        --rebuild)
+            CLI_ACTION="rebuild"
+            shift
+            ;;
+        --test-bot|--bot-diag)
+            CLI_ACTION="bot_diag"
+            shift
+            ;;
         --backup|-b)
             CLI_ACTION="backup"
             shift
@@ -1706,6 +1754,12 @@ case "${CLI_ACTION}" in
         ;;
     diagnose)
         diagnose_and_fix
+        ;;
+    bot_diag)
+        diagnose_telegram_and_channel
+        ;;
+    rebuild)
+        rebuild_and_restart
         ;;
     restart)
         restart_service

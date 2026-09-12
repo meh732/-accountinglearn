@@ -889,6 +889,7 @@ async function callTelegramApi(token: string, method: string, payload: Record<st
 
     // Retry without parse_mode if Telegram rejected HTML entities
     if (!data.ok && typeof data.description === "string" && data.description.includes("can't parse entities") && cleanPayload.text) {
+      console.warn(`[TelegramApi] HTML parse failed, falling back to plain text for ${method}`);
       const plainText = cleanPayload.text.replace(/<[^>]*>/g, "");
       const fallbackPayload = {
         ...cleanPayload,
@@ -903,6 +904,10 @@ async function callTelegramApi(token: string, method: string, payload: Record<st
         signal: AbortSignal.timeout(15000),
       });
       data = await res.json();
+    }
+
+    if (!data.ok) {
+      console.warn(`[TelegramApi] Method '${method}' responded with error:`, data.description || data);
     }
 
     return data;
@@ -1332,6 +1337,8 @@ export async function processTelegramUpdate(token: string, update: any, currentD
       const chatId = msg.chat.id;
 
       if (!from) return;
+
+      console.log(`[TelegramBot] Incoming message from @${from.username || from.id} (${from.first_name}) in chat ${chatId}: "${text}"`);
 
       const user = getOrCreateBotUser(from.id, {
         firstName: from.first_name,
@@ -1765,9 +1772,6 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
         };
         if (lastUpdateId > 0) {
           pollBody.offset = lastUpdateId + 1;
-        } else {
-          // On fresh start, pull last 10 updates so pending /start or /menu is processed immediately
-          pollBody.offset = -10;
         }
 
         const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates`, {
@@ -1782,17 +1786,22 @@ export function startTelegramLongPolling(tokenGetter: () => string, dayNumberGet
           pollingError = "";
           lastActiveTimestamp = new Date().toISOString();
           const currentDay = dayNumberGetter();
+          if (data.result.length > 0) {
+            console.log(`[TelegramPolling] Received ${data.result.length} update(s) from Telegram.`);
+          }
           for (const update of data.result) {
             lastUpdateId = Math.max(lastUpdateId, update.update_id);
             totalUpdatesCount++;
             processTelegramUpdate(token, update, currentDay).catch((e) =>
-              console.error("Error handling update in loop:", e)
+              console.error("[TelegramPolling] Error handling update:", e)
             );
           }
         } else if (!data.ok) {
           pollingError = data.description || `Telegram Error ${data.error_code}`;
+          console.warn(`[TelegramPolling] getUpdates failed (${data.error_code}): ${pollingError}`);
           if (data.error_code === 409) {
             try {
+              console.log("[TelegramPolling] 409 Conflict detected. Re-deleting webhook to restore polling...");
               await fetch(`https://api.telegram.org/bot${token}/deleteWebhook?drop_pending_updates=false`);
             } catch (ignore) {}
           }
